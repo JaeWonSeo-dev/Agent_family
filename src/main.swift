@@ -93,10 +93,7 @@ final class TransparentHostingView<Content: View>: NSHostingView<Content> {
 struct FloatingTerminalOverlay: View {
     @EnvironmentObject private var store: TerminalStore
     @State private var isHovering = false
-
-    private let columns = [
-        GridItem(.adaptive(minimum: 64, maximum: 74), spacing: 12)
-    ]
+    @State private var selectedIndex = 0
 
     var body: some View {
         ZStack {
@@ -105,16 +102,18 @@ struct FloatingTerminalOverlay: View {
             if store.terminals.isEmpty {
                 emptyState
             } else {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(store.terminals) { terminal in
-                        FloatingTerminalIcon(terminal: terminal) {
-                            store.activate(terminal)
-                        }
-                    }
-                }
-                .padding(10)
+                TerminalCarousel(
+                    terminals: store.terminals,
+                    selectedIndex: $selectedIndex,
+                    onActivate: store.activate
+                )
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
             }
 
+            ScrollWheelCapture { deltaY in
+                stepSelection(deltaY: deltaY)
+            }
         }
         .overlay(alignment: .trailing) {
             WindowResizeHandle(edge: .right)
@@ -133,10 +132,19 @@ struct FloatingTerminalOverlay: View {
         .onHover { hovering in
             isHovering = hovering
         }
+        .onChange(of: store.terminals.count) { _, count in
+            selectedIndex = min(selectedIndex, max(0, count - 1))
+        }
         .contextMenu {
             Button("새로고침") { store.refresh() }
             Button("Agent Family 종료") { NSApplication.shared.terminate(nil) }
         }
+    }
+
+    private func stepSelection(deltaY: CGFloat) {
+        guard !store.terminals.isEmpty else { return }
+        let step = deltaY > 0 ? 1 : -1
+        selectedIndex = min(max(selectedIndex + step, 0), store.terminals.count - 1)
     }
 
     private var emptyState: some View {
@@ -150,6 +158,120 @@ struct FloatingTerminalOverlay: View {
                     .stroke(.white.opacity(0.18), lineWidth: 1)
             )
             .help("감지된 터미널 없음 · 우클릭으로 새로고침")
+    }
+}
+
+struct TerminalCarousel: View {
+    let terminals: [TerminalWindow]
+    @Binding var selectedIndex: Int
+    let onActivate: (TerminalWindow) -> Void
+
+    private let itemWidth: CGFloat = 82
+
+    var body: some View {
+        GeometryReader { proxy in
+            let centerOffset = proxy.size.width / 2 - itemWidth / 2
+            let selected = terminals[min(selectedIndex, terminals.count - 1)]
+
+            ZStack(alignment: .center) {
+                HStack(spacing: 10) {
+                    ForEach(Array(terminals.enumerated()), id: \.element.id) { index, terminal in
+                        FloatingTerminalIcon(
+                            terminal: terminal,
+                            isSelected: index == selectedIndex
+                        ) {
+                            selectedIndex = index
+                            onActivate(terminal)
+                        }
+                        .frame(width: itemWidth)
+                        .scaleEffect(index == selectedIndex ? 1.12 : 0.86)
+                        .opacity(index == selectedIndex ? 1.0 : 0.46)
+                    }
+                }
+                .offset(x: centerOffset - CGFloat(selectedIndex) * (itemWidth + 10))
+                .animation(.spring(response: 0.28, dampingFraction: 0.82), value: selectedIndex)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+
+                VStack {
+                    TerminalSpeechBubble(text: selected.displayPath)
+                        .offset(y: -54)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+struct TerminalSpeechBubble: View {
+    let text: String
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(text)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.94))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(.white.opacity(0.16), lineWidth: 1)
+                )
+
+            Triangle()
+                .fill(.black.opacity(0.58))
+                .frame(width: 14, height: 8)
+        }
+        .shadow(color: .black.opacity(0.24), radius: 8, x: 0, y: 4)
+        .frame(maxWidth: 220)
+    }
+}
+
+struct Triangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+struct ScrollWheelCapture: NSViewRepresentable {
+    let onScroll: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> ScrollWheelView {
+        let view = ScrollWheelView()
+        view.onScroll = onScroll
+        return view
+    }
+
+    func updateNSView(_ nsView: ScrollWheelView, context: Context) {
+        nsView.onScroll = onScroll
+    }
+}
+
+final class ScrollWheelView: NSView {
+    var onScroll: ((CGFloat) -> Void)?
+    private var accumulator: CGFloat = 0
+    private let threshold: CGFloat = 18
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.makeFirstResponder(self)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        accumulator += event.scrollingDeltaY
+        guard abs(accumulator) >= threshold else { return }
+        onScroll?(accumulator)
+        accumulator = 0
     }
 }
 
@@ -292,13 +414,14 @@ struct WindowResizeHandle: View {
 
 struct FloatingTerminalIcon: View {
     let terminal: TerminalWindow
+    var isSelected = true
     let onActivate: () -> Void
 
     var body: some View {
         Button(action: onActivate) {
             ZStack(alignment: .bottomTrailing) {
                 Image(systemName: terminal.iconSystemName)
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.system(size: isSelected ? 30 : 25, weight: .semibold))
                     .foregroundStyle(terminal.tint)
                     .frame(width: 58, height: 58)
                     .background(.black.opacity(0.44), in: RoundedRectangle(cornerRadius: 18))
@@ -306,7 +429,7 @@ struct FloatingTerminalIcon: View {
                         RoundedRectangle(cornerRadius: 18)
                             .stroke(.white.opacity(0.20), lineWidth: 1)
                     )
-                    .shadow(color: .black.opacity(0.30), radius: 10, x: 0, y: 6)
+                    .shadow(color: .black.opacity(isSelected ? 0.36 : 0.18), radius: isSelected ? 12 : 6, x: 0, y: 6)
 
                 Text("\(terminal.windowIndex)")
                     .font(.system(size: 10, weight: .black, design: .rounded))
@@ -330,6 +453,8 @@ struct TerminalWindow: Identifiable, Equatable {
     let windowIndex: Int
     let title: String
     let windowNumber: Int?
+    let tty: String?
+    let currentPath: String?
 
     var id: String { "\(bundleIdentifier)-\(processID)-\(windowIndex)-\(windowNumber ?? 0)-\(title)" }
 
@@ -345,6 +470,17 @@ struct TerminalWindow: Identifiable, Equatable {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return appName }
         return String(trimmed.prefix(14))
+    }
+
+    var displayPath: String {
+        if let currentPath, !currentPath.isEmpty {
+            return currentPath.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        }
+        if let tty, !tty.isEmpty {
+            return tty
+        }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? appName : trimmed
     }
 }
 
@@ -522,7 +658,16 @@ final class TerminalStore: ObservableObject {
                 on error
                     set windowID to ""
                 end try
-                set output to output & i & tab & windowID & tab & (name of w as text) & linefeed
+                try
+                    if "\(appName)" is "Terminal" then
+                        set terminalTTY to tty of selected tab of w as text
+                    else
+                        set terminalTTY to tty of current session of w as text
+                    end if
+                on error
+                    set terminalTTY to ""
+                end try
+                set output to output & i & tab & windowID & tab & terminalTTY & tab & (name of w as text) & linefeed
             end repeat
             return output
         end tell
@@ -531,17 +676,20 @@ final class TerminalStore: ObservableObject {
         return runAppleScript(script)
             .split(separator: "\n")
             .compactMap { line -> TerminalWindow? in
-                let parts = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
+                let parts = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
                 guard let indexPart = parts.first, let index = Int(indexPart) else { return nil }
                 let windowID = parts.count > 1 ? Int(parts[1]) : nil
-                let title = parts.count > 2 ? String(parts[2]) : ""
+                let tty = parts.count > 2 ? String(parts[2]) : ""
+                let title = parts.count > 3 ? String(parts[3]) : ""
                 return TerminalWindow(
                     appName: descriptor.displayName,
                     bundleIdentifier: descriptor.bundleIdentifier,
                     processID: processID,
                     windowIndex: index,
                     title: title,
-                    windowNumber: windowID
+                    windowNumber: windowID,
+                    tty: tty.isEmpty ? nil : tty,
+                    currentPath: currentPath(forTTY: tty)
                 )
             }
     }
@@ -580,7 +728,9 @@ final class TerminalStore: ObservableObject {
                 processID: processID,
                 windowIndex: isMinimized ? 10_000 : 0,
                 title: title,
-                windowNumber: nil
+                windowNumber: nil,
+                tty: nil,
+                currentPath: nil
             )
         }
         .enumerated()
@@ -591,7 +741,9 @@ final class TerminalStore: ObservableObject {
                 processID: terminal.processID,
                 windowIndex: offset + 1,
                 title: terminal.title,
-                windowNumber: terminal.windowNumber
+                windowNumber: terminal.windowNumber,
+                tty: terminal.tty,
+                currentPath: terminal.currentPath
             )
         }
     }
@@ -625,9 +777,24 @@ final class TerminalStore: ObservableObject {
                     processID: processID,
                     windowIndex: offset + 1,
                     title: title,
-                    windowNumber: number
+                    windowNumber: number,
+                    tty: nil,
+                    currentPath: nil
                 )
             }
+    }
+
+    private func currentPath(forTTY tty: String) -> String? {
+        guard !tty.isEmpty else { return nil }
+        let ttyName = tty.replacingOccurrences(of: "/dev/", with: "")
+        let command = """
+        pid=$(ps -t \(ttyName) -o pid= 2>/dev/null | tail -1 | tr -d ' ')
+        [ -n \"$pid\" ] || exit 0
+        lsof -a -p \"$pid\" -d cwd -Fn 2>/dev/null | awk 'substr($0,1,1)==\"n\" {print substr($0,2); exit}'
+        """
+        let output = runShell(command)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return output.isEmpty ? nil : output
     }
 
     private func deduplicated(_ windows: [TerminalWindow]) -> [TerminalWindow] {
@@ -649,7 +816,9 @@ final class TerminalStore: ObservableObject {
                     processID: window.processID,
                     windowIndex: output.count + 1,
                     title: window.title,
-                    windowNumber: window.windowNumber
+                    windowNumber: window.windowNumber,
+                    tty: window.tty,
+                    currentPath: window.currentPath
                 )
             )
         }
@@ -665,6 +834,25 @@ final class TerminalStore: ObservableObject {
             NSLog("AppleScript error: %@", error)
         }
         return result.stringValue ?? ""
+    }
+
+    private func runShell(_ command: String) -> String {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8) ?? ""
+        } catch {
+            NSLog("Shell error: %@", String(describing: error))
+            return ""
+        }
     }
 }
 

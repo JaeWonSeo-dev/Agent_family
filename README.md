@@ -18,7 +18,8 @@ macOS에서 실행 중인 터미널 창을 감지하고, GUI 리스트에서 해
 - 마우스 드래그로 위치 이동
 - 창 크기 조절 가능
 - 배경/타이틀바/일반 창 크롬 제거
-- 터미널별 아이콘만 떠있는 UI
+- 마우스 휠로 좌우 전환되는 터미널 캐러셀 UI
+- 선택된 터미널의 현재 경로를 말풍선으로 표시
 - AppleScript로 Terminal / iTerm2 전체 창 목록 조회
 - AppleScript가 권한 문제로 실패하면 Accessibility API로 전체 창 목록 fallback 감지
 - Accessibility도 실패하면 macOS Window Server 창 목록으로 fallback 감지
