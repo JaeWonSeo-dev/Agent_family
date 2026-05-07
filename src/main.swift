@@ -31,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
 
-        let overlayWindow = NSWindow(
+        let overlayWindow = FloatingOverlayWindow(
             contentRect: NSRect(x: 120, y: 720, width: 320, height: 190),
             styleMask: [.borderless],
             backing: .buffered,
@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.isOpaque = false
         overlayWindow.backgroundColor = .clear
         overlayWindow.hasShadow = false
-        overlayWindow.isMovableByWindowBackground = false
+        overlayWindow.isMovableByWindowBackground = true
         overlayWindow.isReleasedWhenClosed = false
         overlayWindow.minSize = NSSize(width: 320, height: 190)
         overlayWindow.maxSize = NSSize(width: 320, height: 190)
@@ -76,23 +76,29 @@ extension Notification.Name {
     static let agentFamilyScrollWheel = Notification.Name("AgentFamilyScrollWheel")
 }
 
-final class TransparentHostingView<Content: View>: NSHostingView<Content> {
-    override var isOpaque: Bool { false }
+final class FloatingOverlayWindow: NSWindow {
     private var scrollAccumulator: CGFloat = 0
     private let scrollThreshold: CGFloat = 18
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        clearBackgrounds(from: self)
-        window?.isOpaque = false
-        window?.backgroundColor = .clear
-    }
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 
     override func scrollWheel(with event: NSEvent) {
         scrollAccumulator += event.scrollingDeltaY
         guard abs(scrollAccumulator) >= scrollThreshold else { return }
         NotificationCenter.default.post(name: .agentFamilyScrollWheel, object: scrollAccumulator)
         scrollAccumulator = 0
+    }
+}
+
+final class TransparentHostingView<Content: View>: NSHostingView<Content> {
+    override var isOpaque: Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        clearBackgrounds(from: self)
+        window?.isOpaque = false
+        window?.backgroundColor = .clear
     }
 
     private func clearBackgrounds(from view: NSView) {
@@ -111,7 +117,7 @@ struct FloatingTerminalOverlay: View {
 
     var body: some View {
         ZStack {
-            WindowMoveSurface()
+            Color.clear
 
             if store.terminals.isEmpty {
                 emptyState
@@ -245,38 +251,6 @@ struct Triangle: Shape {
     }
 }
 
-struct WindowMoveSurface: View {
-    @State private var initialFrame: NSRect?
-
-    var body: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 2)
-                    .onChanged { value in
-                        moveWindow(with: value.translation)
-                    }
-                    .onEnded { _ in
-                        initialFrame = nil
-                    }
-            )
-    }
-
-    @MainActor
-    private func moveWindow(with translation: CGSize) {
-        guard let window = OverlayWindowRegistry.shared.window else { return }
-        if initialFrame == nil {
-            initialFrame = window.frame
-        }
-        guard let initialFrame else { return }
-
-        var frame = initialFrame
-        frame.origin.x += translation.width
-        frame.origin.y -= translation.height
-        window.setFrame(frame, display: true)
-    }
-}
-
 struct FloatingTerminalIcon: View {
     let terminal: TerminalWindow
     var isSelected = true
@@ -402,6 +376,16 @@ final class TerminalStore: ObservableObject {
                             end if
                         end repeat
                     end try
+                    activate
+                    delay 0.05
+                    try
+                        repeat with w in windows
+                            if id of w is \(windowNumber) then
+                                set index of w to 1
+                                exit repeat
+                            end if
+                        end repeat
+                    end try
                 end tell
                 """
             } else {
@@ -409,6 +393,11 @@ final class TerminalStore: ObservableObject {
                 tell application "Terminal"
                     try
                         set visible of window \(terminal.windowIndex) to true
+                        set index of window \(terminal.windowIndex) to 1
+                    end try
+                    activate
+                    delay 0.05
+                    try
                         set index of window \(terminal.windowIndex) to 1
                     end try
                 end tell
@@ -428,6 +417,11 @@ final class TerminalStore: ObservableObject {
                             end if
                         end repeat
                     end try
+                end try
+                activate
+                delay 0.05
+                try
+                    select window \(terminal.windowIndex)
                 end try
             end tell
             """
