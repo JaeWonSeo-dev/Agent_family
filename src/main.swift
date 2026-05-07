@@ -24,16 +24,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let rootView = FloatingTerminalOverlay()
             .environmentObject(store)
-            .frame(minWidth: 96, minHeight: 96)
+            .frame(width: 320, height: 190)
 
         let hostingView = TransparentHostingView(rootView: rootView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 260, height: 180)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 320, height: 190)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
 
         let overlayWindow = NSWindow(
-            contentRect: NSRect(x: 120, y: 720, width: 260, height: 180),
-            styleMask: [.borderless, .resizable],
+            contentRect: NSRect(x: 120, y: 720, width: 320, height: 190),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -45,7 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.hasShadow = false
         overlayWindow.isMovableByWindowBackground = false
         overlayWindow.isReleasedWhenClosed = false
-        overlayWindow.minSize = NSSize(width: 96, height: 96)
+        overlayWindow.minSize = NSSize(width: 320, height: 190)
+        overlayWindow.maxSize = NSSize(width: 320, height: 190)
         overlayWindow.contentView = hostingView
         OverlayWindowRegistry.shared.window = overlayWindow
         overlayWindow.makeKeyAndOrderFront(nil)
@@ -71,14 +72,27 @@ final class OverlayWindowRegistry {
     weak var window: NSWindow?
 }
 
+extension Notification.Name {
+    static let agentFamilyScrollWheel = Notification.Name("AgentFamilyScrollWheel")
+}
+
 final class TransparentHostingView<Content: View>: NSHostingView<Content> {
     override var isOpaque: Bool { false }
+    private var scrollAccumulator: CGFloat = 0
+    private let scrollThreshold: CGFloat = 18
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         clearBackgrounds(from: self)
         window?.isOpaque = false
         window?.backgroundColor = .clear
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        scrollAccumulator += event.scrollingDeltaY
+        guard abs(scrollAccumulator) >= scrollThreshold else { return }
+        NotificationCenter.default.post(name: .agentFamilyScrollWheel, object: scrollAccumulator)
+        scrollAccumulator = 0
     }
 
     private func clearBackgrounds(from view: NSView) {
@@ -111,26 +125,16 @@ struct FloatingTerminalOverlay: View {
                 .padding(.vertical, 14)
             }
 
-            ScrollWheelCapture { deltaY in
-                stepSelection(deltaY: deltaY)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            WindowResizeHandle(edge: .right)
-                .frame(maxHeight: .infinity)
-        }
-        .overlay(alignment: .bottom) {
-            WindowResizeHandle(edge: .bottom)
-                .frame(maxWidth: .infinity)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            WindowResizeHandle(edge: .bottomRight, visible: isHovering)
         }
         .background(.clear)
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovering = hovering
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .agentFamilyScrollWheel)) { notification in
+            guard let deltaY = notification.object as? CGFloat else { return }
+            stepSelection(deltaY: deltaY)
         }
         .onChange(of: store.terminals.count) { _, count in
             selectedIndex = min(selectedIndex, max(0, count - 1))
@@ -241,40 +245,6 @@ struct Triangle: Shape {
     }
 }
 
-struct ScrollWheelCapture: NSViewRepresentable {
-    let onScroll: (CGFloat) -> Void
-
-    func makeNSView(context: Context) -> ScrollWheelView {
-        let view = ScrollWheelView()
-        view.onScroll = onScroll
-        return view
-    }
-
-    func updateNSView(_ nsView: ScrollWheelView, context: Context) {
-        nsView.onScroll = onScroll
-    }
-}
-
-final class ScrollWheelView: NSView {
-    var onScroll: ((CGFloat) -> Void)?
-    private var accumulator: CGFloat = 0
-    private let threshold: CGFloat = 18
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        window?.makeFirstResponder(self)
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        accumulator += event.scrollingDeltaY
-        guard abs(accumulator) >= threshold else { return }
-        onScroll?(accumulator)
-        accumulator = 0
-    }
-}
-
 struct WindowMoveSurface: View {
     @State private var initialFrame: NSRect?
 
@@ -303,111 +273,6 @@ struct WindowMoveSurface: View {
         var frame = initialFrame
         frame.origin.x += translation.width
         frame.origin.y -= translation.height
-        window.setFrame(frame, display: true)
-    }
-}
-
-enum ResizeEdge {
-    case right
-    case bottom
-    case bottomRight
-}
-
-struct WindowResizeHandle: View {
-    let edge: ResizeEdge
-    var visible = false
-    @State private var initialFrame: NSRect?
-
-    var body: some View {
-        handleContent
-            .frame(width: width, height: height)
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                updateCursor(hovering: hovering)
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        resizeWindow(with: value.translation)
-                    }
-                    .onEnded { _ in
-                        initialFrame = nil
-                    }
-            )
-    }
-
-    @ViewBuilder
-    private var handleContent: some View {
-        if visible {
-            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.white.opacity(0.75))
-                .frame(width: 28, height: 28)
-                .background(.black.opacity(0.24), in: Circle())
-        } else {
-            Color.clear
-        }
-    }
-
-    private var width: CGFloat? {
-        switch edge {
-        case .right: return 18
-        case .bottom: return nil
-        case .bottomRight: return 34
-        }
-    }
-
-    private var height: CGFloat? {
-        switch edge {
-        case .right: return nil
-        case .bottom: return 18
-        case .bottomRight: return 34
-        }
-    }
-
-    private func updateCursor(hovering: Bool) {
-        guard hovering else {
-            NSCursor.pop()
-            return
-        }
-
-        switch edge {
-        case .right:
-            NSCursor.resizeLeftRight.push()
-        case .bottom:
-            NSCursor.resizeUpDown.push()
-        case .bottomRight:
-            NSCursor.resizeLeftRight.push()
-        }
-    }
-
-    @MainActor
-    private func resizeWindow(with translation: CGSize) {
-        guard let window = OverlayWindowRegistry.shared.window else { return }
-
-        if initialFrame == nil {
-            initialFrame = window.frame
-        }
-        guard let initialFrame else { return }
-
-        var frame = initialFrame
-        let minWidth = window.minSize.width
-        let minHeight = window.minSize.height
-
-        switch edge {
-        case .right:
-            frame.size.width = max(minWidth, initialFrame.width + translation.width)
-        case .bottom:
-            let newHeight = max(minHeight, initialFrame.height - translation.height)
-            frame.origin.y = initialFrame.maxY - newHeight
-            frame.size.height = newHeight
-        case .bottomRight:
-            let newHeight = max(minHeight, initialFrame.height - translation.height)
-            frame.size.width = max(minWidth, initialFrame.width + translation.width)
-            frame.origin.y = initialFrame.maxY - newHeight
-            frame.size.height = newHeight
-        }
-
         window.setFrame(frame, display: true)
     }
 }
@@ -621,6 +486,7 @@ final class TerminalStore: ObservableObject {
         let raiseResult = AXUIElementPerformAction(targetWindow, kAXRaiseAction as CFString)
         if raiseResult == .success {
             AXUIElementSetAttributeValue(targetWindow, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            NSRunningApplication(processIdentifier: terminal.processID)?.activate(options: [])
             return true
         }
         return false
