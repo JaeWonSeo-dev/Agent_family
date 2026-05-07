@@ -356,8 +356,9 @@ final class TerminalStore: ObservableObject {
             return
         }
 
-        guard terminal.bundleIdentifier != "com.apple.Terminal" else {
-            NSLog("Unable to raise Terminal window via Accessibility: %@", terminal.title)
+        if terminal.bundleIdentifier == "com.apple.Terminal" {
+            activateTerminalUsingAppleScript(terminal)
+            refresh()
             return
         }
 
@@ -386,6 +387,53 @@ final class TerminalStore: ObservableObject {
 
         _ = runAppleScript(script)
         refresh()
+    }
+
+    private func activateTerminalUsingAppleScript(_ terminal: TerminalWindow) {
+        let script: String
+        if let windowNumber = terminal.windowNumber {
+            script = """
+            tell application "Terminal"
+                set targetWindow to missing value
+                repeat with w in windows
+                    if id of w is \(windowNumber) then
+                        set targetWindow to w
+                    end if
+                end repeat
+
+                if targetWindow is not missing value then
+                    repeat with w in windows
+                        if id of w is not \(windowNumber) then
+                            try
+                                set miniaturized of w to true
+                            end try
+                        end if
+                    end repeat
+                    set miniaturized of targetWindow to false
+                    set visible of targetWindow to true
+                    set index of targetWindow to 1
+                end if
+            end tell
+            """
+        } else {
+            script = """
+            tell application "Terminal"
+                set targetWindow to window \(terminal.windowIndex)
+                set targetID to id of targetWindow
+                repeat with w in windows
+                    if id of w is not targetID then
+                        try
+                            set miniaturized of w to true
+                        end try
+                    end if
+                end repeat
+                set miniaturized of targetWindow to false
+                set visible of targetWindow to true
+                set index of targetWindow to 1
+            end tell
+            """
+        }
+        _ = runAppleScript(script)
     }
 
     private func raiseUsingAccessibility(_ terminal: TerminalWindow) -> Bool {
