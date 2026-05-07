@@ -111,24 +111,18 @@ struct FloatingTerminalOverlay: View {
 
             WindowResizeHandle(edge: .right)
             WindowResizeHandle(edge: .bottom)
-            WindowResizeHandle(edge: .bottomRight)
+
+            if isHovering {
+                WindowResizeHandle(edge: .bottomRight, visible: true)
+            } else {
+                WindowResizeHandle(edge: .bottomRight, visible: false)
+            }
         }
         .background(.clear)
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovering = hovering
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if isHovering {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.70))
-                    .frame(width: 18, height: 18)
-                    .background(.black.opacity(0.18), in: Circle())
-                    .padding(4)
-                    .allowsHitTesting(false)
-            }
         }
         .contextMenu {
             Button("새로고침") { store.refresh() }
@@ -158,13 +152,17 @@ enum ResizeEdge {
 
 struct WindowResizeHandle: View {
     let edge: ResizeEdge
+    var visible = false
     @State private var initialFrame: NSRect?
 
     var body: some View {
-        Color.clear
+        handleContent
             .frame(width: width, height: height)
             .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: alignment)
             .contentShape(Rectangle())
+            .onHover { hovering in
+                updateCursor(hovering: hovering)
+            }
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
@@ -176,19 +174,32 @@ struct WindowResizeHandle: View {
             )
     }
 
+    @ViewBuilder
+    private var handleContent: some View {
+        if visible {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white.opacity(0.75))
+                .frame(width: 28, height: 28)
+                .background(.black.opacity(0.24), in: Circle())
+        } else {
+            Color.clear
+        }
+    }
+
     private var width: CGFloat? {
         switch edge {
-        case .right: return 12
+        case .right: return 18
         case .bottom: return nil
-        case .bottomRight: return 24
+        case .bottomRight: return 34
         }
     }
 
     private var height: CGFloat? {
         switch edge {
         case .right: return nil
-        case .bottom: return 12
-        case .bottomRight: return 24
+        case .bottom: return 18
+        case .bottomRight: return 34
         }
     }
 
@@ -205,6 +216,22 @@ struct WindowResizeHandle: View {
         case .right: return .trailing
         case .bottom: return .bottom
         case .bottomRight: return .bottomTrailing
+        }
+    }
+
+    private func updateCursor(hovering: Bool) {
+        guard hovering else {
+            NSCursor.pop()
+            return
+        }
+
+        switch edge {
+        case .right:
+            NSCursor.resizeLeftRight.push()
+        case .bottom:
+            NSCursor.resizeUpDown.push()
+        case .bottomRight:
+            NSCursor.resizeLeftRight.push()
         }
     }
 
@@ -336,7 +363,6 @@ final class TerminalStore: ObservableObject {
             if let windowNumber = terminal.windowNumber {
                 script = """
                 tell application "Terminal"
-                    activate
                     try
                         repeat with w in windows
                             if id of w is \(windowNumber) then
@@ -346,23 +372,23 @@ final class TerminalStore: ObservableObject {
                             end if
                         end repeat
                     end try
+                    activate
                 end tell
                 """
             } else {
                 script = """
                 tell application "Terminal"
-                    activate
                     try
                         set visible of window \(terminal.windowIndex) to true
                         set index of window \(terminal.windowIndex) to 1
                     end try
+                    activate
                 end tell
                 """
             }
         } else {
             script = """
             tell application "iTerm2"
-                activate
                 try
                     select window \(terminal.windowIndex)
                 on error
@@ -375,6 +401,7 @@ final class TerminalStore: ObservableObject {
                         end repeat
                     end try
                 end try
+                activate
             end tell
             """
         }
