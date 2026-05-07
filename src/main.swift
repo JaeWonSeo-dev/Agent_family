@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.isOpaque = false
         overlayWindow.backgroundColor = .clear
         overlayWindow.hasShadow = false
-        overlayWindow.isMovableByWindowBackground = true
+        overlayWindow.isMovableByWindowBackground = false
         overlayWindow.isReleasedWhenClosed = false
         overlayWindow.minSize = NSSize(width: 96, height: 96)
         overlayWindow.contentView = hostingView
@@ -51,11 +51,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.makeKeyAndOrderFront(nil)
 
         self.window = overlayWindow
+        requestAccessibilityPermissionIfNeeded()
         store.startAutoRefresh()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    private func requestAccessibilityPermissionIfNeeded() {
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 }
 
@@ -94,7 +100,7 @@ struct FloatingTerminalOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.clear
+            WindowMoveSurface()
 
             if store.terminals.isEmpty {
                 emptyState
@@ -109,14 +115,17 @@ struct FloatingTerminalOverlay: View {
                 .padding(10)
             }
 
+        }
+        .overlay(alignment: .trailing) {
             WindowResizeHandle(edge: .right)
+                .frame(maxHeight: .infinity)
+        }
+        .overlay(alignment: .bottom) {
             WindowResizeHandle(edge: .bottom)
-
-            if isHovering {
-                WindowResizeHandle(edge: .bottomRight, visible: true)
-            } else {
-                WindowResizeHandle(edge: .bottomRight, visible: false)
-            }
+                .frame(maxWidth: .infinity)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            WindowResizeHandle(edge: .bottomRight, visible: isHovering)
         }
         .background(.clear)
         .ignoresSafeArea()
@@ -144,6 +153,38 @@ struct FloatingTerminalOverlay: View {
     }
 }
 
+struct WindowMoveSurface: View {
+    @State private var initialFrame: NSRect?
+
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { value in
+                        moveWindow(with: value.translation)
+                    }
+                    .onEnded { _ in
+                        initialFrame = nil
+                    }
+            )
+    }
+
+    @MainActor
+    private func moveWindow(with translation: CGSize) {
+        guard let window = OverlayWindowRegistry.shared.window else { return }
+        if initialFrame == nil {
+            initialFrame = window.frame
+        }
+        guard let initialFrame else { return }
+
+        var frame = initialFrame
+        frame.origin.x += translation.width
+        frame.origin.y -= translation.height
+        window.setFrame(frame, display: true)
+    }
+}
+
 enum ResizeEdge {
     case right
     case bottom
@@ -158,7 +199,6 @@ struct WindowResizeHandle: View {
     var body: some View {
         handleContent
             .frame(width: width, height: height)
-            .frame(maxWidth: maxWidth, maxHeight: maxHeight, alignment: alignment)
             .contentShape(Rectangle())
             .onHover { hovering in
                 updateCursor(hovering: hovering)
@@ -200,22 +240,6 @@ struct WindowResizeHandle: View {
         case .right: return nil
         case .bottom: return 18
         case .bottomRight: return 34
-        }
-    }
-
-    private var maxWidth: CGFloat? {
-        edge == .bottom ? .infinity : nil
-    }
-
-    private var maxHeight: CGFloat? {
-        edge == .right ? .infinity : nil
-    }
-
-    private var alignment: Alignment {
-        switch edge {
-        case .right: return .trailing
-        case .bottom: return .bottom
-        case .bottomRight: return .bottomTrailing
         }
     }
 
@@ -356,6 +380,11 @@ final class TerminalStore: ObservableObject {
     }
 
     func activate(_ terminal: TerminalWindow) {
+        if raiseUsingAccessibility(terminal) {
+            refresh()
+            return
+        }
+
         let escapedTitle = terminal.title.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let script: String
 
@@ -405,6 +434,66 @@ final class TerminalStore: ObservableObject {
 
         _ = runAppleScript(script)
         refresh()
+    }
+
+    private func raiseUsingAccessibility(_ terminal: TerminalWindow) -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+
+        let appElement = AXUIElementCreateApplication(terminal.processID)
+        var rawWindows: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &rawWindows)
+        guard result == .success, let windows = rawWindows as? [AXUIElement] else {
+            return false
+        }
+
+        let normalizedTargetTitle = normalizeTitle(terminal.title)
+        let candidateWindows = windows.compactMap { window -> (AXUIElement, String)? in
+            var rawRole: CFTypeRef?
+            var rawSubrole: CFTypeRef?
+            var rawTitle: CFTypeRef?
+            AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &rawRole)
+            AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &rawSubrole)
+            AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &rawTitle)
+
+            let role = rawRole as? String
+            let subrole = rawSubrole as? String
+            guard role == kAXWindowRole as String else { return nil }
+            guard subrole == nil || subrole == kAXStandardWindowSubrole as String else { return nil }
+
+            return (window, normalizeTitle(rawTitle as? String ?? ""))
+        }
+
+        let exactMatch = candidateWindows.first { _, title in
+            title == normalizedTargetTitle
+        }?.0
+
+        let indexedMatch: AXUIElement? = {
+            guard terminal.windowIndex > 0, terminal.windowIndex <= candidateWindows.count else { return nil }
+            return candidateWindows[terminal.windowIndex - 1].0
+        }()
+
+        guard let targetWindow = exactMatch ?? indexedMatch else {
+            return false
+        }
+
+        var minimizedValue: CFTypeRef?
+        AXUIElementCopyAttributeValue(targetWindow, kAXMinimizedAttribute as CFString, &minimizedValue)
+        if (minimizedValue as? Bool) == true {
+            AXUIElementSetAttributeValue(targetWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        }
+
+        let raiseResult = AXUIElementPerformAction(targetWindow, kAXRaiseAction as CFString)
+        if raiseResult == .success {
+            AXUIElementSetAttributeValue(targetWindow, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            return true
+        }
+        return false
+    }
+
+    private func normalizeTitle(_ title: String) -> String {
+        title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
 
     private func fetchWindows(for descriptor: TerminalAppDescriptor, processID: pid_t) -> [TerminalWindow] {
