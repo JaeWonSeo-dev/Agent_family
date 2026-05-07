@@ -372,7 +372,6 @@ final class TerminalStore: ObservableObject {
                             end if
                         end repeat
                     end try
-                    activate
                 end tell
                 """
             } else {
@@ -382,7 +381,6 @@ final class TerminalStore: ObservableObject {
                         set visible of window \(terminal.windowIndex) to true
                         set index of window \(terminal.windowIndex) to 1
                     end try
-                    activate
                 end tell
                 """
             }
@@ -401,7 +399,6 @@ final class TerminalStore: ObservableObject {
                         end repeat
                     end try
                 end try
-                activate
             end tell
             """
         }
