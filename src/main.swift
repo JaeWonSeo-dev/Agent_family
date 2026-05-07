@@ -61,6 +61,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func requestAccessibilityPermissionIfNeeded() {
+        guard !AXIsProcessTrusted() else { return }
+
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }
