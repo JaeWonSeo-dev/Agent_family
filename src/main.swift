@@ -294,6 +294,7 @@ struct TerminalWindow: Identifiable, Equatable {
     let windowIndex: Int
     let title: String
     let windowNumber: Int?
+    let windowFrame: CGRect?
     let tty: String?
     let currentPath: String?
 
@@ -357,82 +358,38 @@ final class TerminalStore: ObservableObject {
     }
 
     func activate(_ terminal: TerminalWindow) {
-        if terminal.bundleIdentifier != "com.apple.Terminal", raiseUsingAccessibility(terminal) {
+        if raiseUsingAccessibility(terminal) {
             refresh()
             return
         }
 
-        let escapedTitle = terminal.title.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        let script: String
-
-        if terminal.bundleIdentifier == "com.apple.Terminal" {
-            if let windowNumber = terminal.windowNumber {
-                script = """
-                tell application "Terminal"
-                    set targetWindow to missing value
-                    repeat with w in windows
-                        if id of w is \(windowNumber) then
-                            set targetWindow to w
-                        end if
-                    end repeat
-
-                    if targetWindow is not missing value then
-                        repeat with w in windows
-                            if id of w is not \(windowNumber) then
-                                try
-                                    set miniaturized of w to true
-                                end try
-                            end if
-                        end repeat
-                        delay 0.02
-                        set miniaturized of targetWindow to false
-                        set visible of targetWindow to true
-                        set index of targetWindow to 1
-                    end if
-                end tell
-                """
-            } else {
-                script = """
-                tell application "Terminal"
-                    set targetWindow to window \(terminal.windowIndex)
-                    set targetID to id of targetWindow
-                    repeat with w in windows
-                        if id of w is not targetID then
-                            try
-                                set miniaturized of w to true
-                            end try
-                        end if
-                    end repeat
-                    delay 0.02
-                    set miniaturized of targetWindow to false
-                    set visible of targetWindow to true
-                    set index of targetWindow to 1
-                end tell
-                """
-            }
-        } else {
-            script = """
-            tell application "iTerm2"
-                try
-                    select window \(terminal.windowIndex)
-                on error
-                    try
-                        repeat with w in windows
-                            if name of w is "\(escapedTitle)" then
-                                select w
-                                exit repeat
-                            end if
-                        end repeat
-                    end try
-                end try
-                activate
-                delay 0.05
-                try
-                    select window \(terminal.windowIndex)
-                end try
-            end tell
-            """
+        guard terminal.bundleIdentifier != "com.apple.Terminal" else {
+            NSLog("Unable to raise Terminal window via Accessibility: %@", terminal.title)
+            return
         }
+
+        let escapedTitle = terminal.title.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let script = """
+        tell application "iTerm2"
+            try
+                select window \(terminal.windowIndex)
+            on error
+                try
+                    repeat with w in windows
+                        if name of w is "\(escapedTitle)" then
+                            select w
+                            exit repeat
+                        end if
+                    end repeat
+                end try
+            end try
+            activate
+            delay 0.05
+            try
+                select window \(terminal.windowIndex)
+            end try
+        end tell
+        """
 
         _ = runAppleScript(script)
         refresh()
@@ -448,49 +405,89 @@ final class TerminalStore: ObservableObject {
             return false
         }
 
-        let normalizedTargetTitle = normalizeTitle(terminal.title)
-        let candidateWindows = windows.compactMap { window -> (AXUIElement, String)? in
-            var rawRole: CFTypeRef?
-            var rawSubrole: CFTypeRef?
-            var rawTitle: CFTypeRef?
-            AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &rawRole)
-            AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &rawSubrole)
-            AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &rawTitle)
-
-            let role = rawRole as? String
-            let subrole = rawSubrole as? String
-            guard role == kAXWindowRole as String else { return nil }
-            guard subrole == nil || subrole == kAXStandardWindowSubrole as String else { return nil }
-
-            return (window, normalizeTitle(rawTitle as? String ?? ""))
+        let candidates = windows.compactMap { window -> AXWindowCandidate? in
+            axWindowCandidate(from: window)
         }
 
-        let exactMatch = candidateWindows.first { _, title in
-            title == normalizedTargetTitle
-        }?.0
+        let targetWindow: AXUIElement?
+        if terminal.bundleIdentifier == "com.apple.Terminal", let targetFrame = terminal.windowFrame {
+            targetWindow = candidates
+                .min { lhs, rhs in
+                    frameDistance(lhs.frame, targetFrame) < frameDistance(rhs.frame, targetFrame)
+                }?
+                .element
+        } else {
+            let normalizedTargetTitle = normalizeTitle(terminal.title)
+            let exactMatch = candidates.first { candidate in
+                candidate.title == normalizedTargetTitle
+            }?.element
 
-        let indexedMatch: AXUIElement? = {
-            guard terminal.windowIndex > 0, terminal.windowIndex <= candidateWindows.count else { return nil }
-            return candidateWindows[terminal.windowIndex - 1].0
-        }()
-
-        guard let targetWindow = exactMatch ?? indexedMatch else {
-            return false
+            let indexedMatch: AXUIElement? = {
+                guard terminal.windowIndex > 0, terminal.windowIndex <= candidates.count else { return nil }
+                return candidates[terminal.windowIndex - 1].element
+            }()
+            targetWindow = exactMatch ?? indexedMatch
         }
 
-        var minimizedValue: CFTypeRef?
-        AXUIElementCopyAttributeValue(targetWindow, kAXMinimizedAttribute as CFString, &minimizedValue)
-        if (minimizedValue as? Bool) == true {
-            AXUIElementSetAttributeValue(targetWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        guard let targetWindow else { return false }
+
+        if terminal.bundleIdentifier == "com.apple.Terminal" {
+            for candidate in candidates where !CFEqual(candidate.element, targetWindow) {
+                AXUIElementSetAttributeValue(candidate.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+            }
         }
 
+        AXUIElementSetAttributeValue(targetWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        AXUIElementSetAttributeValue(targetWindow, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         let raiseResult = AXUIElementPerformAction(targetWindow, kAXRaiseAction as CFString)
-        if raiseResult == .success {
-            AXUIElementSetAttributeValue(targetWindow, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-            NSRunningApplication(processIdentifier: terminal.processID)?.activate(options: [])
-            return true
-        }
-        return false
+        return raiseResult == .success
+    }
+
+    private struct AXWindowCandidate {
+        let element: AXUIElement
+        let title: String
+        let frame: CGRect
+    }
+
+    private func axWindowCandidate(from window: AXUIElement) -> AXWindowCandidate? {
+        var rawRole: CFTypeRef?
+        var rawSubrole: CFTypeRef?
+        var rawTitle: CFTypeRef?
+        AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &rawRole)
+        AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &rawSubrole)
+        AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &rawTitle)
+
+        let role = rawRole as? String
+        let subrole = rawSubrole as? String
+        guard role == kAXWindowRole as String else { return nil }
+        guard subrole == nil || subrole == kAXStandardWindowSubrole as String else { return nil }
+        guard let frame = axFrame(for: window) else { return nil }
+
+        return AXWindowCandidate(
+            element: window,
+            title: normalizeTitle(rawTitle as? String ?? ""),
+            frame: frame
+        )
+    }
+
+    private func axFrame(for window: AXUIElement) -> CGRect? {
+        var rawPosition: CFTypeRef?
+        var rawSize: CFTypeRef?
+        AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &rawPosition)
+        AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &rawSize)
+
+        var point = CGPoint.zero
+        var size = CGSize.zero
+        guard let positionValue = rawPosition, AXValueGetValue(positionValue as! AXValue, .cgPoint, &point) else { return nil }
+        guard let sizeValue = rawSize, AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
+        return CGRect(origin: point, size: size)
+    }
+
+    private func frameDistance(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        abs(lhs.origin.x - rhs.origin.x)
+        + abs(lhs.origin.y - rhs.origin.y)
+        + abs(lhs.width - rhs.width)
+        + abs(lhs.height - rhs.height)
     }
 
     private func normalizeTitle(_ title: String) -> String {
@@ -555,6 +552,7 @@ final class TerminalStore: ObservableObject {
                     windowIndex: index,
                     title: title,
                     windowNumber: windowID,
+                    windowFrame: windowID.flatMap { windowFrame(forWindowNumber: $0, processID: processID) },
                     tty: tty.isEmpty ? nil : tty,
                     currentPath: currentPath(forTTY: tty)
                 )
@@ -596,6 +594,7 @@ final class TerminalStore: ObservableObject {
                 windowIndex: isMinimized ? 10_000 : 0,
                 title: title,
                 windowNumber: nil,
+                windowFrame: nil,
                 tty: nil,
                 currentPath: nil
             )
@@ -609,6 +608,7 @@ final class TerminalStore: ObservableObject {
                 windowIndex: offset + 1,
                 title: terminal.title,
                 windowNumber: terminal.windowNumber,
+                windowFrame: terminal.windowFrame,
                 tty: terminal.tty,
                 currentPath: terminal.currentPath
             )
@@ -645,10 +645,30 @@ final class TerminalStore: ObservableObject {
                     windowIndex: offset + 1,
                     title: title,
                     windowNumber: number,
+                    windowFrame: number.flatMap { windowFrame(forWindowNumber: $0, processID: processID) },
                     tty: nil,
                     currentPath: nil
                 )
             }
+    }
+
+    private func windowFrame(forWindowNumber windowNumber: Int, processID: pid_t) -> CGRect? {
+        guard let windowInfo = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+
+        guard let info = windowInfo.first(where: { item in
+            (item[kCGWindowNumber as String] as? Int) == windowNumber
+            && (item[kCGWindowOwnerPID as String] as? pid_t) == processID
+        }), let bounds = info[kCGWindowBounds as String] as? [String: Any] else {
+            return nil
+        }
+
+        let x = bounds["X"] as? CGFloat ?? 0
+        let y = bounds["Y"] as? CGFloat ?? 0
+        let width = bounds["Width"] as? CGFloat ?? 0
+        let height = bounds["Height"] as? CGFloat ?? 0
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     private func currentPath(forTTY tty: String) -> String? {
@@ -684,6 +704,7 @@ final class TerminalStore: ObservableObject {
                     windowIndex: output.count + 1,
                     title: window.title,
                     windowNumber: window.windowNumber,
+                    windowFrame: window.windowFrame,
                     tty: window.tty,
                     currentPath: window.currentPath
                 )
