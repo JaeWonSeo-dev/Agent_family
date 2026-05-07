@@ -371,22 +371,20 @@ final class TerminalStore: ObservableObject {
                     repeat with w in windows
                         if id of w is \(windowNumber) then
                             set targetWindow to w
-                        else
-                            try
-                                set miniaturized of w to true
-                            end try
                         end if
                     end repeat
 
                     if targetWindow is not missing value then
+                        repeat with w in windows
+                            if id of w is not \(windowNumber) then
+                                try
+                                    set miniaturized of w to true
+                                end try
+                            end if
+                        end repeat
+                        delay 0.02
                         set miniaturized of targetWindow to false
                         set visible of targetWindow to true
-                        set index of targetWindow to 1
-                    end if
-                    activate
-                    delay 0.05
-                    if targetWindow is not missing value then
-                        set miniaturized of targetWindow to false
                         set index of targetWindow to 1
                     end if
                 end tell
@@ -403,12 +401,9 @@ final class TerminalStore: ObservableObject {
                             end try
                         end if
                     end repeat
+                    delay 0.02
                     set miniaturized of targetWindow to false
                     set visible of targetWindow to true
-                    set index of targetWindow to 1
-                    activate
-                    delay 0.05
-                    set miniaturized of targetWindow to false
                     set index of targetWindow to 1
                 end tell
                 """
