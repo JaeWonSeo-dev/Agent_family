@@ -52,7 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow.makeKeyAndOrderFront(nil)
 
         self.window = overlayWindow
-        requestAccessibilityPermissionIfNeeded()
         store.startAutoRefresh()
     }
 
@@ -60,12 +59,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    private func requestAccessibilityPermissionIfNeeded() {
-        guard !AXIsProcessTrusted() else { return }
-
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-    }
 }
 
 @MainActor
@@ -438,8 +431,19 @@ final class TerminalStore: ObservableObject {
         }
 
         AXUIElementSetAttributeValue(targetWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(targetWindow, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         let raiseResult = AXUIElementPerformAction(targetWindow, kAXRaiseAction as CFString)
+
+        if terminal.bundleIdentifier == "com.apple.Terminal" {
+            for candidate in candidates where !CFEqual(candidate.element, targetWindow) {
+                AXUIElementSetAttributeValue(candidate.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+            }
+            AXUIElementSetAttributeValue(targetWindow, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            AXUIElementSetAttributeValue(targetWindow, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            _ = AXUIElementPerformAction(targetWindow, kAXRaiseAction as CFString)
+        }
+
         return raiseResult == .success
     }
 
