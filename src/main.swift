@@ -355,7 +355,7 @@ final class TerminalStore: ObservableObject {
     }
 
     func activate(_ terminal: TerminalWindow) {
-        if raiseUsingAccessibility(terminal) {
+        if terminal.bundleIdentifier != "com.apple.Terminal", raiseUsingAccessibility(terminal) {
             refresh()
             return
         }
@@ -367,39 +367,45 @@ final class TerminalStore: ObservableObject {
             if let windowNumber = terminal.windowNumber {
                 script = """
                 tell application "Terminal"
-                    try
-                        repeat with w in windows
-                            if id of w is \(windowNumber) then
-                                set visible of w to true
-                                set index of w to 1
-                                exit repeat
-                            end if
-                        end repeat
-                    end try
+                    set targetWindow to missing value
+                    repeat with w in windows
+                        if id of w is \(windowNumber) then
+                            set targetWindow to w
+                        else
+                            try
+                                set visible of w to false
+                            end try
+                        end if
+                    end repeat
+
+                    if targetWindow is not missing value then
+                        set visible of targetWindow to true
+                        set index of targetWindow to 1
+                    end if
                     activate
                     delay 0.05
-                    try
-                        repeat with w in windows
-                            if id of w is \(windowNumber) then
-                                set index of w to 1
-                                exit repeat
-                            end if
-                        end repeat
-                    end try
+                    if targetWindow is not missing value then
+                        set index of targetWindow to 1
+                    end if
                 end tell
                 """
             } else {
                 script = """
                 tell application "Terminal"
-                    try
-                        set visible of window \(terminal.windowIndex) to true
-                        set index of window \(terminal.windowIndex) to 1
-                    end try
+                    set targetWindow to window \(terminal.windowIndex)
+                    set targetID to id of targetWindow
+                    repeat with w in windows
+                        if id of w is not targetID then
+                            try
+                                set visible of w to false
+                            end try
+                        end if
+                    end repeat
+                    set visible of targetWindow to true
+                    set index of targetWindow to 1
                     activate
                     delay 0.05
-                    try
-                        set index of window \(terminal.windowIndex) to 1
-                    end try
+                    set index of targetWindow to 1
                 end tell
                 """
             }
