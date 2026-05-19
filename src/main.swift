@@ -542,34 +542,37 @@ struct TerminalLauncherIcon: View {
             let time = timeline.date.timeIntervalSinceReferenceDate + Double(displayNumber) * 0.37
             let attention = min(max((isPointerNear ? 0.74 : 0) + (isHovering ? 0.26 : 0), 0), 1)
             let idle = 1 - attention
-            let bounce = sin(time * 5.4) * 5.5 * idle
-            let breathe = 1 + sin(time * 3.1) * 0.035 * idle
-            let sway = sin(time * 2.15) * 5.2 * idle
+            let bounce = sin(time * 5.4) * 4.8 * idle
+            let breathe = 1 + sin(time * 3.1) * 0.030 * idle
+            let sway = sin(time * 2.15) * 4.2 * idle
             let blink = blinkAmount(time)
             let clickSquashX = isPressed ? 1.15 : 1.0
             let clickSquashY = isPressed ? 0.82 : 1.0
             let dragLean = isDragging ? pointerVector.width * 20 : pointerVector.width * 8
-            let headX = pointerVector.width * 11 * attention + sin(time * 2.3) * 2.8 * idle
-            let headY = -pointerVector.height * 7 * attention + cos(time * 2.0) * 2.2 * idle
+            let headX = pointerVector.width * 12 * attention + sin(time * 2.3) * 2.4 * idle
+            let headY = -pointerVector.height * 7 * attention + cos(time * 2.0) * 1.8 * idle
             let earTwitch = earTwitchAmount(time) * idle + attention * 10
             let tailWave = sin(time * 4.4) * 18 * idle + pointerVector.width * 20 * attention
             let pawWave = max(0, sin(time * 3.6 - 0.4)) * 7 * idle
 
             ZStack(alignment: .bottomTrailing) {
                 ZStack {
+                    iconGlow(attention: attention)
+                        .offset(y: 4)
+
                     mascotShadow(isPressed: isPressed, attention: attention)
-                        .offset(y: 58)
+                        .offset(y: 60)
 
                     tail(tailWave: tailWave)
-                        .offset(x: 34 + pointerVector.width * 8 * attention, y: 22 + bounce * 0.18)
+                        .offset(x: 36 + pointerVector.width * 8 * attention, y: 28 + bounce * 0.18)
                         .rotationEffect(.degrees(isDragging ? Double(pointerVector.width * 18) : 0), anchor: .bottomLeading)
 
                     body(breathe: breathe, attention: attention)
-                        .offset(x: pointerVector.width * 5 * attention, y: 18 + bounce)
+                        .offset(x: pointerVector.width * 5 * attention, y: 28 + bounce)
                         .scaleEffect(x: clickSquashX, y: clickSquashY, anchor: .bottom)
 
                     paws(pawWave: pawWave, attention: attention)
-                        .offset(x: pointerVector.width * 4 * attention, y: 50 + bounce * 0.6 + (isPressed ? 6 : 0))
+                        .offset(x: pointerVector.width * 4 * attention, y: 45 + bounce * 0.55 + (isPressed ? 6 : 0))
 
                     head(
                         time: time,
@@ -579,7 +582,7 @@ struct TerminalLauncherIcon: View {
                         headY: headY,
                         earTwitch: earTwitch
                     )
-                    .offset(x: headX, y: -15 + headY + bounce * 0.65 + (isPressed ? 6 : 0))
+                    .offset(x: headX, y: -18 + headY + bounce * 0.65 + (isPressed ? 6 : 0))
                     .rotationEffect(.degrees(dragLean + sway * 0.35), anchor: .bottom)
                     .scaleEffect(x: isPressed ? 1.08 : 1, y: isPressed ? 0.90 : 1, anchor: .bottom)
                 }
@@ -618,9 +621,42 @@ struct TerminalLauncherIcon: View {
 
     private func mascotShadow(isPressed: Bool, attention: CGFloat) -> some View {
         Capsule()
-            .fill(.black.opacity(0.18))
-            .frame(width: isPressed ? 70 : 88 + attention * 10, height: isPressed ? 12 : 17)
+            .fill(.black.opacity(0.15))
+            .frame(width: isPressed ? 74 : 94 + attention * 8, height: isPressed ? 12 : 16)
             .blur(radius: 7)
+    }
+
+    private func iconGlow(attention: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 36)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.76, green: 0.43, blue: 1.0).opacity(0.32 + attention * 0.10),
+                            Color(red: 0.34, green: 0.46, blue: 1.0).opacity(0.22 + attention * 0.08),
+                            .clear
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 124, height: 118)
+                .blur(radius: 1.2)
+
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.36, green: 0.22, blue: 0.88).opacity(0.78),
+                            Color(red: 0.54, green: 0.45, blue: 1.0).opacity(0.52)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: 96, height: 15)
+                .offset(y: 52)
+        }
     }
 
     private func body(breathe: CGFloat, attention: CGFloat) -> some View {
@@ -629,26 +665,26 @@ struct TerminalLauncherIcon: View {
                 .fill(
                     RadialGradient(
                         colors: [
-                            Color(red: 1.0, green: 0.88, blue: 0.73),
-                            Color(red: 0.84, green: 0.58, blue: 0.38)
+                            Color(red: 1.0, green: 0.91, blue: 0.78),
+                            Color(red: 0.78, green: 0.55, blue: 0.40)
                         ],
                         center: .topLeading,
                         startRadius: 8,
                         endRadius: 70
                     )
                 )
-                .frame(width: 78, height: 68)
+                .frame(width: 82, height: 64)
 
             Ellipse()
-                .fill(Color(red: 1.0, green: 0.94, blue: 0.84).opacity(0.92))
-                .frame(width: 43, height: 48)
-                .offset(x: -3, y: 10)
+                .fill(Color(red: 1.0, green: 0.96, blue: 0.87).opacity(0.96))
+                .frame(width: 49, height: 44)
+                .offset(x: -4, y: 8)
 
             Capsule()
-                .fill(tint.opacity(0.78))
-                .frame(width: 44, height: 7)
-                .offset(y: -22)
-                .shadow(color: tint.opacity(0.28), radius: 5, x: 0, y: 2)
+                .fill(Color(red: 0.33, green: 0.20, blue: 0.13).opacity(0.38))
+                .frame(width: 50, height: 9)
+                .rotationEffect(.degrees(-12))
+                .offset(x: 22, y: -2)
         }
         .scaleEffect(x: 1 + attention * 0.03, y: breathe, anchor: .bottom)
     }
@@ -663,34 +699,37 @@ struct TerminalLauncherIcon: View {
     ) -> some View {
         ZStack {
             ears(earTwitch: earTwitch, attention: attention)
-                .offset(y: -41)
+                .offset(y: -47)
 
             Circle()
                 .fill(
                     RadialGradient(
                         colors: [
-                            Color(red: 1.0, green: 0.89, blue: 0.74),
-                            Color(red: 0.86, green: 0.63, blue: 0.44)
+                            Color(red: 1.0, green: 0.96, blue: 0.86),
+                            Color(red: 0.92, green: 0.72, blue: 0.55)
                         ],
                         center: .topLeading,
                         startRadius: 8,
                         endRadius: 66
                     )
                 )
-                .frame(width: 84, height: 84)
-                .scaleEffect(x: 1.08, y: 0.98)
+                .frame(width: 94, height: 90)
+                .scaleEffect(x: 1.05, y: 0.98)
                 .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 5)
+
+            cheekPatches
+                .offset(y: 1)
 
             faceStripes(attention: attention)
 
             muzzle
-                .offset(y: 17)
+                .offset(y: 16)
 
             eyes(blink: blink, attention: attention)
-                .offset(x: headX * 0.10, y: headY * 0.08 - 1)
+                .offset(x: headX * 0.10, y: headY * 0.08 - 2)
 
             noseAndMouth(attention: attention)
-                .offset(y: 19)
+                .offset(y: 20)
 
             whiskers(attention: attention)
                 .offset(y: 17)
@@ -702,26 +741,42 @@ struct TerminalLauncherIcon: View {
     private func ears(earTwitch: CGFloat, attention: CGFloat) -> some View {
         ZStack {
             CatEar()
-                .fill(Color(red: 0.78, green: 0.52, blue: 0.35))
-                .frame(width: 34, height: 42)
+                .fill(Color(red: 0.76, green: 0.54, blue: 0.39))
+                .frame(width: 39, height: 50)
                 .overlay(
                     CatEar()
-                        .fill(Color(red: 1.0, green: 0.50, blue: 0.48).opacity(0.86))
-                        .padding(8)
+                        .fill(Color(red: 1.0, green: 0.48, blue: 0.43).opacity(0.88))
+                        .padding(9)
                 )
                 .rotationEffect(.degrees(-22 - earTwitch - attention * 8), anchor: .bottom)
-                .offset(x: -31, y: 4)
+                .offset(x: -35, y: 4)
 
             CatEar()
-                .fill(Color(red: 0.78, green: 0.52, blue: 0.35))
-                .frame(width: 34, height: 42)
+                .fill(Color(red: 0.76, green: 0.54, blue: 0.39))
+                .frame(width: 39, height: 50)
                 .overlay(
                     CatEar()
-                        .fill(Color(red: 1.0, green: 0.50, blue: 0.48).opacity(0.86))
-                        .padding(8)
+                        .fill(Color(red: 1.0, green: 0.48, blue: 0.43).opacity(0.88))
+                        .padding(9)
                 )
                 .rotationEffect(.degrees(22 + earTwitch + attention * 8), anchor: .bottom)
-                .offset(x: 31, y: 4)
+                .offset(x: 35, y: 4)
+        }
+    }
+
+    private var cheekPatches: some View {
+        ZStack {
+            Ellipse()
+                .fill(Color(red: 0.53, green: 0.34, blue: 0.23).opacity(0.44))
+                .frame(width: 34, height: 42)
+                .rotationEffect(.degrees(-22))
+                .offset(x: -33, y: 1)
+
+            Ellipse()
+                .fill(Color(red: 0.53, green: 0.34, blue: 0.23).opacity(0.44))
+                .frame(width: 34, height: 42)
+                .rotationEffect(.degrees(22))
+                .offset(x: 33, y: 1)
         }
     }
 
@@ -729,24 +784,24 @@ struct TerminalLauncherIcon: View {
         ZStack {
             ForEach(0..<3, id: \.self) { index in
                 Capsule()
-                    .fill(Color(red: 0.30, green: 0.18, blue: 0.11).opacity(0.60))
-                    .frame(width: 7, height: 25 - CGFloat(index * 3))
-                    .rotationEffect(.degrees(Double(index - 1) * 13))
-                    .offset(x: CGFloat(index - 1) * 13, y: -28 + attention * -2)
+                    .fill(Color(red: 0.28, green: 0.17, blue: 0.10).opacity(0.52))
+                    .frame(width: 6, height: 22 - CGFloat(index * 3))
+                    .rotationEffect(.degrees(Double(index - 1) * 11))
+                    .offset(x: CGFloat(index - 1) * 12, y: -30 + attention * -2)
             }
 
             ForEach(0..<2, id: \.self) { index in
                 Capsule()
-                    .fill(Color(red: 0.30, green: 0.18, blue: 0.11).opacity(0.54))
-                    .frame(width: 24, height: 5)
+                    .fill(Color(red: 0.28, green: 0.17, blue: 0.10).opacity(0.42))
+                    .frame(width: 24, height: 4)
                     .rotationEffect(.degrees(index == 0 ? -18 : 18))
-                    .offset(x: -34, y: CGFloat(index) * 10 - 9)
+                    .offset(x: -38, y: CGFloat(index) * 10 - 8)
 
                 Capsule()
-                    .fill(Color(red: 0.30, green: 0.18, blue: 0.11).opacity(0.54))
-                    .frame(width: 24, height: 5)
+                    .fill(Color(red: 0.28, green: 0.17, blue: 0.10).opacity(0.42))
+                    .frame(width: 24, height: 4)
                     .rotationEffect(.degrees(index == 0 ? 18 : -18))
-                    .offset(x: 34, y: CGFloat(index) * 10 - 9)
+                    .offset(x: 38, y: CGFloat(index) * 10 - 8)
             }
         }
     }
@@ -754,16 +809,16 @@ struct TerminalLauncherIcon: View {
     private var muzzle: some View {
         HStack(spacing: -3) {
             Circle()
-                .fill(Color(red: 1.0, green: 0.94, blue: 0.84))
-                .frame(width: 28, height: 24)
+                .fill(Color(red: 1.0, green: 0.96, blue: 0.88))
+                .frame(width: 31, height: 26)
             Circle()
-                .fill(Color(red: 1.0, green: 0.94, blue: 0.84))
-                .frame(width: 28, height: 24)
+                .fill(Color(red: 1.0, green: 0.96, blue: 0.88))
+                .frame(width: 31, height: 26)
         }
     }
 
     private func eyes(blink: CGFloat, attention: CGFloat) -> some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 12) {
             catEye(blink: blink, attention: attention)
             catEye(blink: blink, attention: attention)
         }
@@ -773,41 +828,71 @@ struct TerminalLauncherIcon: View {
         ZStack {
             Capsule()
                 .fill(.white)
-                .frame(width: 21 + attention * 5, height: max(3, 27 * (1 - blink)))
+                .frame(width: 29 + attention * 5, height: max(4, 36 * (1 - blink)))
+                .overlay(
+                    Capsule()
+                        .stroke(.black.opacity(0.18), lineWidth: 1.2)
+                )
 
             Circle()
-                .fill(Color(red: 0.53, green: 0.68, blue: 0.30))
-                .frame(width: 14 + attention * 2, height: max(2, 14 * (1 - blink)))
-                .offset(x: pointerVector.width * 4 * attention, y: -pointerVector.height * 3 * attention)
-
-            Circle()
-                .fill(.black.opacity(0.92))
-                .frame(width: 8 + attention * 2, height: max(2, 8 * (1 - blink)))
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color(red: 0.72, green: 0.84, blue: 0.36),
+                            Color(red: 0.38, green: 0.53, blue: 0.17)
+                        ],
+                        center: .topLeading,
+                        startRadius: 2,
+                        endRadius: 12
+                    )
+                )
+                .frame(width: 20 + attention * 2, height: max(3, 20 * (1 - blink)))
                 .offset(x: pointerVector.width * 5 * attention, y: -pointerVector.height * 4 * attention)
 
             Circle()
+                .fill(.black.opacity(0.92))
+                .frame(width: 13 + attention * 2, height: max(3, 13 * (1 - blink)))
+                .offset(x: pointerVector.width * 6 * attention, y: -pointerVector.height * 5 * attention)
+
+            Circle()
                 .fill(.white.opacity(blink > 0.7 ? 0 : 0.9))
-                .frame(width: 4, height: 4)
-                .offset(x: 4 + pointerVector.width * 4 * attention, y: -7 - pointerVector.height * 3 * attention)
+                .frame(width: 6, height: 6)
+                .offset(x: 7 + pointerVector.width * 5 * attention, y: -10 - pointerVector.height * 4 * attention)
+
+            Circle()
+                .fill(.white.opacity(blink > 0.7 ? 0 : 0.65))
+                .frame(width: 3, height: 3)
+                .offset(x: 2 + pointerVector.width * 5 * attention, y: -2 - pointerVector.height * 4 * attention)
         }
     }
 
     private func noseAndMouth(attention: CGFloat) -> some View {
-        VStack(spacing: 1) {
+        VStack(spacing: 0) {
             Circle()
-                .fill(Color(red: 1.0, green: 0.36, blue: 0.34))
-                .frame(width: 10, height: 8)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 1.0, green: 0.50, blue: 0.47),
+                            Color(red: 0.92, green: 0.25, blue: 0.28)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 12, height: 10)
                 .scaleEffect(x: 1.22, y: 0.88)
 
-            HStack(spacing: 0) {
-                ArcSmile()
-                    .stroke(.black.opacity(0.58), lineWidth: 1.6)
-                    .frame(width: 11, height: isPressed ? 12 : 8 + attention * 4)
-                    .scaleEffect(x: -1, y: 1)
-                ArcSmile()
-                    .stroke(.black.opacity(0.58), lineWidth: 1.6)
-                    .frame(width: 11, height: isPressed ? 12 : 8 + attention * 4)
+            ZStack {
+                Ellipse()
+                    .fill(Color(red: 0.30, green: 0.05, blue: 0.04).opacity(0.92))
+                    .frame(width: 24 + attention * 4, height: isPressed ? 19 : 17 + attention * 5)
+
+                Ellipse()
+                    .fill(Color(red: 1.0, green: 0.35, blue: 0.31).opacity(0.90))
+                    .frame(width: 13, height: 8)
+                    .offset(y: 5)
             }
+            .offset(y: -1)
         }
     }
 
@@ -816,39 +901,52 @@ struct TerminalLauncherIcon: View {
             ForEach(0..<3, id: \.self) { index in
                 Capsule()
                     .fill(.white.opacity(0.82))
-                    .frame(width: 31 + attention * 5, height: 1.4)
+                    .frame(width: 35 + attention * 5, height: 1.2)
                     .rotationEffect(.degrees(Double(index - 1) * 10 - 4))
-                    .offset(x: -39, y: CGFloat(index - 1) * 6)
+                    .offset(x: -43, y: CGFloat(index - 1) * 6)
 
                 Capsule()
                     .fill(.white.opacity(0.82))
-                    .frame(width: 31 + attention * 5, height: 1.4)
+                    .frame(width: 35 + attention * 5, height: 1.2)
                     .rotationEffect(.degrees(Double(index - 1) * -10 + 4))
-                    .offset(x: 39, y: CGFloat(index - 1) * 6)
+                    .offset(x: 43, y: CGFloat(index - 1) * 6)
             }
         }
     }
 
     private func paws(pawWave: CGFloat, attention: CGFloat) -> some View {
-        HStack(spacing: 22) {
-            paw
-                .offset(y: -pawWave - attention * 5)
-                .rotationEffect(.degrees(-8 - pawWave * 0.8))
-            paw
-                .offset(y: pawWave * 0.35)
-                .rotationEffect(.degrees(8 + pawWave * 0.35))
+        ZStack {
+            paw(showPads: true)
+                .scaleEffect(1.22)
+                .offset(x: -42, y: -28 - pawWave - attention * 6)
+                .rotationEffect(.degrees(-18 - pawWave * 0.8))
+
+            paw(showPads: false)
+                .scaleEffect(x: 1.22, y: 1.06)
+                .offset(x: 24, y: 6 + pawWave * 0.25)
+                .rotationEffect(.degrees(6 + pawWave * 0.35))
         }
     }
 
-    private var paw: some View {
+    private func paw(showPads: Bool) -> some View {
         ZStack {
             Circle()
-                .fill(Color(red: 1.0, green: 0.92, blue: 0.82))
-                .frame(width: 29, height: 25)
-            Circle()
-                .fill(Color(red: 1.0, green: 0.48, blue: 0.45).opacity(0.72))
-                .frame(width: 7, height: 6)
-                .offset(y: 5)
+                .fill(Color(red: 1.0, green: 0.94, blue: 0.84))
+                .frame(width: 31, height: 27)
+
+            if showPads {
+                Circle()
+                    .fill(Color(red: 1.0, green: 0.45, blue: 0.42).opacity(0.76))
+                    .frame(width: 9, height: 8)
+                    .offset(y: 5)
+
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(Color(red: 1.0, green: 0.45, blue: 0.42).opacity(0.72))
+                        .frame(width: 5, height: 5)
+                        .offset(x: CGFloat(index - 1) * 8, y: -4)
+                }
+            }
         }
         .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
     }
@@ -898,15 +996,6 @@ struct CatTail: Shape {
             control1: CGPoint(x: rect.maxX - 30, y: rect.minY - 6),
             control2: CGPoint(x: rect.maxX - 41, y: rect.minY + 12)
         )
-        return path
-    }
-}
-
-struct ArcSmile: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY), control: CGPoint(x: rect.midX, y: rect.maxY))
         return path
     }
 }
