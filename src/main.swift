@@ -3,6 +3,7 @@ import AppKit
 import CoreGraphics
 import ApplicationServices
 import Combine
+import SceneKit
 
 @main
 struct AgentFamilyApp: App {
@@ -543,6 +544,449 @@ struct WindowFrameReader: NSViewRepresentable {
     }
 }
 
+struct Mascot3DSceneView: NSViewRepresentable {
+    let tint: Color
+    let mood: TerminalMood
+    let pointerVector: CGSize
+    let isPointerNear: Bool
+    let isHovering: Bool
+    let isPressed: Bool
+    let isDragging: Bool
+    let isTerminalActive: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> SCNView {
+        let view = SCNView(frame: .zero)
+        view.scene = context.coordinator.scene
+        view.backgroundColor = .clear
+        view.allowsCameraControl = false
+        view.autoenablesDefaultLighting = false
+        view.rendersContinuously = true
+        view.isPlaying = true
+        view.antialiasingMode = .multisampling4X
+        context.coordinator.update(
+            tint: tint,
+            mood: mood,
+            pointerVector: pointerVector,
+            isPointerNear: isPointerNear,
+            isHovering: isHovering,
+            isPressed: isPressed,
+            isDragging: isDragging,
+            isTerminalActive: isTerminalActive
+        )
+        return view
+    }
+
+    func updateNSView(_ nsView: SCNView, context: Context) {
+        context.coordinator.update(
+            tint: tint,
+            mood: mood,
+            pointerVector: pointerVector,
+            isPointerNear: isPointerNear,
+            isHovering: isHovering,
+            isPressed: isPressed,
+            isDragging: isDragging,
+            isTerminalActive: isTerminalActive
+        )
+    }
+
+    final class Coordinator {
+        let scene = SCNScene()
+        private let root = SCNNode()
+        private let body = SCNNode()
+        private let head = SCNNode()
+        private let leftEar = SCNNode()
+        private let rightEar = SCNNode()
+        private let tail = SCNNode()
+        private let leftEye = SCNNode()
+        private let rightEye = SCNNode()
+        private let leftPupil = SCNNode()
+        private let rightPupil = SCNNode()
+        private let mouth = SCNNode()
+        private let leftWhiskers = SCNNode()
+        private let rightWhiskers = SCNNode()
+        private let moodLight = SCNNode()
+        private var lastMood: TerminalMood = .idle
+
+        init() {
+            buildScene()
+            installIdleAnimations()
+        }
+
+        func update(
+            tint: Color,
+            mood: TerminalMood,
+            pointerVector: CGSize,
+            isPointerNear: Bool,
+            isHovering: Bool,
+            isPressed: Bool,
+            isDragging: Bool,
+            isTerminalActive: Bool
+        ) {
+            let attention = isPointerNear || isHovering || isTerminalActive
+            let px = pointerVector.width
+            let py = pointerVector.height
+            let pressScaleY: CGFloat = isPressed ? 0.86 : 1.0
+            let pressScaleX: CGFloat = isPressed ? 1.08 : 1.0
+            let dragTilt: CGFloat = isDragging ? px * 0.28 : 0
+
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.18
+            root.scale = SCNVector3(pressScaleX, pressScaleY, 1.0)
+            root.eulerAngles.z = dragTilt
+            head.eulerAngles = SCNVector3(
+                -py * (attention ? 0.22 : 0.08),
+                px * (attention ? 0.36 : 0.12),
+                -px * (attention ? 0.10 : 0.04)
+            )
+            head.position.y = attention ? 0.78 : 0.70
+            leftPupil.position.x = -0.18 + px * 0.045
+            leftPupil.position.y = 0.11 + py * 0.035
+            rightPupil.position.x = 0.18 + px * 0.045
+            rightPupil.position.y = 0.11 + py * 0.035
+            leftEar.eulerAngles.z = attention ? -0.34 - px * 0.08 : -0.42
+            rightEar.eulerAngles.z = attention ? 0.34 - px * 0.08 : 0.42
+            tail.eulerAngles.z = (isDragging ? 0.92 : 0.58) + px * 0.18
+            mouth.scale.y = mood == .error ? 1.35 : (mood == .success ? 0.72 : 1.0)
+            moodLight.light?.color = nsColor(for: mood)
+            moodLight.light?.intensity = isTerminalActive ? 520 : 300
+            SCNTransaction.commit()
+
+            if mood != lastMood {
+                lastMood = mood
+                animateMood(mood)
+            }
+        }
+
+        private func buildScene() {
+            scene.background.contents = NSColor.clear
+            scene.rootNode.addChildNode(root)
+
+            let camera = SCNCamera()
+            camera.usesOrthographicProjection = true
+            camera.orthographicScale = 4.15
+            let cameraNode = SCNNode()
+            cameraNode.camera = camera
+            cameraNode.position = SCNVector3(0, 0.18, 7)
+            scene.rootNode.addChildNode(cameraNode)
+
+            let ambient = SCNLight()
+            ambient.type = .ambient
+            ambient.intensity = 420
+            ambient.color = NSColor(white: 0.86, alpha: 1)
+            let ambientNode = SCNNode()
+            ambientNode.light = ambient
+            scene.rootNode.addChildNode(ambientNode)
+
+            let key = SCNLight()
+            key.type = .omni
+            key.intensity = 780
+            key.color = NSColor(calibratedRed: 1.0, green: 0.86, blue: 0.78, alpha: 1)
+            let keyNode = SCNNode()
+            keyNode.light = key
+            keyNode.position = SCNVector3(-2.2, 3.2, 4.0)
+            scene.rootNode.addChildNode(keyNode)
+
+            let mood = SCNLight()
+            mood.type = .omni
+            mood.intensity = 300
+            mood.color = NSColor.systemPink
+            moodLight.light = mood
+            moodLight.position = SCNVector3(2.4, 1.8, 3.2)
+            scene.rootNode.addChildNode(moodLight)
+
+            buildCloud()
+            buildCat()
+        }
+
+        private func buildCloud() {
+            let cloudMaterial = material(
+                diffuse: NSColor(calibratedRed: 1.0, green: 0.61, blue: 0.70, alpha: 1),
+                specular: NSColor.white.withAlphaComponent(0.25),
+                roughness: 0.72
+            )
+            let positions: [(Float, Float, Float, Float)] = [
+                (-0.82, -1.25, 0.46, 0.72),
+                (-0.34, -1.05, 0.50, 0.72),
+                (0.22, -1.02, 0.56, 0.76),
+                (0.78, -1.18, 0.47, 0.70),
+                (0.00, -1.36, 0.72, 0.42)
+            ]
+            for item in positions {
+                let node = SCNNode(geometry: SCNSphere(radius: CGFloat(item.2)))
+                node.geometry?.materials = [cloudMaterial]
+                node.position = SCNVector3(item.0, item.1, 0)
+                node.scale = SCNVector3(1.15, item.3, 0.78)
+                root.addChildNode(node)
+            }
+        }
+
+        private func buildCat() {
+            let fur = material(
+                diffuse: NSColor(calibratedRed: 0.91, green: 0.70, blue: 0.52, alpha: 1),
+                specular: NSColor.white.withAlphaComponent(0.34),
+                roughness: 0.58
+            )
+            let cream = material(
+                diffuse: NSColor(calibratedRed: 1.0, green: 0.89, blue: 0.78, alpha: 1),
+                specular: NSColor.white.withAlphaComponent(0.30),
+                roughness: 0.62
+            )
+            let stripe = material(
+                diffuse: NSColor(calibratedRed: 0.33, green: 0.20, blue: 0.14, alpha: 1),
+                specular: NSColor.white.withAlphaComponent(0.12),
+                roughness: 0.72
+            )
+            let pink = material(
+                diffuse: NSColor(calibratedRed: 1.0, green: 0.38, blue: 0.36, alpha: 1),
+                specular: NSColor.white.withAlphaComponent(0.38),
+                roughness: 0.48
+            )
+            let white = material(diffuse: .white, specular: .white, roughness: 0.35)
+            let green = material(
+                diffuse: NSColor(calibratedRed: 0.50, green: 0.64, blue: 0.25, alpha: 1),
+                specular: .white,
+                roughness: 0.28
+            )
+            let black = material(diffuse: .black, specular: .white, roughness: 0.22)
+
+            body.geometry = SCNSphere(radius: 0.72)
+            body.geometry?.materials = [fur]
+            body.position = SCNVector3(0, -0.38, 0)
+            body.scale = SCNVector3(0.94, 1.04, 0.72)
+            root.addChildNode(body)
+
+            let belly = SCNNode(geometry: SCNSphere(radius: 0.48))
+            belly.geometry?.materials = [cream]
+            belly.position = SCNVector3(0, -0.42, 0.43)
+            belly.scale = SCNVector3(0.82, 1.12, 0.18)
+            body.addChildNode(belly)
+
+            head.geometry = SCNSphere(radius: 0.82)
+            head.geometry?.materials = [fur]
+            head.position = SCNVector3(0, 0.70, 0.05)
+            head.scale = SCNVector3(1.04, 0.94, 0.82)
+            root.addChildNode(head)
+
+            let muzzle = SCNNode(geometry: SCNSphere(radius: 0.33))
+            muzzle.geometry?.materials = [cream]
+            muzzle.position = SCNVector3(0, -0.16, 0.61)
+            muzzle.scale = SCNVector3(1.25, 0.68, 0.42)
+            head.addChildNode(muzzle)
+
+            leftEar.geometry = SCNCone(topRadius: 0, bottomRadius: 0.28, height: 0.68)
+            rightEar.geometry = SCNCone(topRadius: 0, bottomRadius: 0.28, height: 0.68)
+            leftEar.geometry?.materials = [fur]
+            rightEar.geometry?.materials = [fur]
+            leftEar.position = SCNVector3(-0.48, 0.62, 0.02)
+            rightEar.position = SCNVector3(0.48, 0.62, 0.02)
+            leftEar.eulerAngles = SCNVector3(0, 0, -0.42)
+            rightEar.eulerAngles = SCNVector3(0, 0, 0.42)
+            head.addChildNode(leftEar)
+            head.addChildNode(rightEar)
+
+            addInnerEar(to: leftEar, material: pink)
+            addInnerEar(to: rightEar, material: pink)
+
+            for x in [-0.22, 0.0, 0.22] {
+                let mark = SCNNode(geometry: SCNCapsule(capRadius: 0.035, height: 0.34))
+                mark.geometry?.materials = [stripe]
+                mark.position = SCNVector3(Float(x), 0.44, 0.68)
+                mark.eulerAngles.x = .pi / 2
+                mark.scale = SCNVector3(0.75, 1, 1)
+                head.addChildNode(mark)
+            }
+
+            addEye(isLeft: true, white: white, green: green, black: black)
+            addEye(isLeft: false, white: white, green: green, black: black)
+
+            let nose = SCNNode(geometry: SCNSphere(radius: 0.085))
+            nose.geometry?.materials = [pink]
+            nose.position = SCNVector3(0, -0.08, 0.82)
+            nose.scale = SCNVector3(1.20, 0.72, 0.78)
+            head.addChildNode(nose)
+
+            mouth.geometry = SCNTorus(ringRadius: 0.115, pipeRadius: 0.012)
+            mouth.geometry?.materials = [black]
+            mouth.position = SCNVector3(0, -0.22, 0.80)
+            mouth.scale = SCNVector3(1.0, 0.45, 0.18)
+            head.addChildNode(mouth)
+
+            addWhiskers(material: cream)
+            addPaws(material: cream, pink: pink)
+
+            tail.geometry = SCNCapsule(capRadius: 0.11, height: 1.08)
+            tail.geometry?.materials = [fur]
+            tail.position = SCNVector3(-0.72, -0.54, -0.08)
+            tail.eulerAngles = SCNVector3(0.2, 0.15, 0.58)
+            root.addChildNode(tail)
+        }
+
+        private func addInnerEar(to ear: SCNNode, material: SCNMaterial) {
+            let inner = SCNNode(geometry: SCNCone(topRadius: 0, bottomRadius: 0.15, height: 0.42))
+            inner.geometry?.materials = [material]
+            inner.position = SCNVector3(0, -0.03, 0.045)
+            inner.scale = SCNVector3(0.70, 0.70, 0.18)
+            ear.addChildNode(inner)
+        }
+
+        private func addEye(isLeft: Bool, white: SCNMaterial, green: SCNMaterial, black: SCNMaterial) {
+            let sign: Float = isLeft ? -1 : 1
+            let eye = isLeft ? leftEye : rightEye
+            eye.geometry = SCNSphere(radius: 0.185)
+            eye.geometry?.materials = [white]
+            eye.position = SCNVector3(sign * 0.28, 0.09, 0.70)
+            eye.scale = SCNVector3(0.92, 1.18, 0.34)
+            head.addChildNode(eye)
+
+            let iris = SCNNode(geometry: SCNSphere(radius: 0.116))
+            iris.geometry?.materials = [green]
+            iris.position = SCNVector3(0, 0, 0.092)
+            iris.scale = SCNVector3(0.94, 1.08, 0.20)
+            eye.addChildNode(iris)
+
+            let pupil = isLeft ? leftPupil : rightPupil
+            pupil.geometry = SCNSphere(radius: 0.070)
+            pupil.geometry?.materials = [black]
+            pupil.position = SCNVector3(sign * 0.18, 0.11, 0.83)
+            pupil.scale = SCNVector3(0.92, 1.18, 0.20)
+            head.addChildNode(pupil)
+
+            let shine = SCNNode(geometry: SCNSphere(radius: 0.028))
+            shine.geometry?.materials = [material(diffuse: .white, specular: .white, roughness: 0.18)]
+            shine.position = SCNVector3(sign * 0.22, 0.18, 0.88)
+            head.addChildNode(shine)
+        }
+
+        private func addWhiskers(material: SCNMaterial) {
+            for side: Float in [-1, 1] {
+                let group = side < 0 ? leftWhiskers : rightWhiskers
+                group.position = SCNVector3(side * 0.38, -0.11, 0.73)
+                head.addChildNode(group)
+                for index in 0..<3 {
+                    let whisker = SCNNode(geometry: SCNCapsule(capRadius: 0.007, height: 0.52))
+                    whisker.geometry?.materials = [material]
+                    whisker.position = SCNVector3(side * 0.25, Float(index - 1) * 0.055, 0)
+                    whisker.eulerAngles = SCNVector3(0, 0, side * (Float.pi / 2 + Float(index - 1) * 0.12))
+                    group.addChildNode(whisker)
+                }
+            }
+        }
+
+        private func addPaws(material: SCNMaterial, pink: SCNMaterial) {
+            for x: Float in [-0.34, 0.34] {
+                let paw = SCNNode(geometry: SCNSphere(radius: 0.22))
+                paw.geometry?.materials = [material]
+                paw.position = SCNVector3(x, -0.82, 0.50)
+                paw.scale = SCNVector3(1.02, 0.80, 0.55)
+                root.addChildNode(paw)
+
+                let pad = SCNNode(geometry: SCNSphere(radius: 0.065))
+                pad.geometry?.materials = [pink]
+                pad.position = SCNVector3(0, -0.03, 0.16)
+                pad.scale = SCNVector3(1.15, 0.76, 0.30)
+                paw.addChildNode(pad)
+            }
+        }
+
+        private func installIdleAnimations() {
+            root.runAction(
+                .repeatForever(
+                    .sequence([
+                        .moveBy(x: 0, y: 0.045, z: 0, duration: 1.35),
+                        .moveBy(x: 0, y: -0.045, z: 0, duration: 1.35)
+                    ])
+                ),
+                forKey: "float"
+            )
+            body.runAction(
+                .repeatForever(
+                    .sequence([
+                        .scale(to: 1.025, duration: 1.45),
+                        .scale(to: 1.0, duration: 1.45)
+                    ])
+                ),
+                forKey: "breathing"
+            )
+            tail.runAction(
+                .repeatForever(
+                    .sequence([
+                        .rotateBy(x: 0, y: 0, z: 0.20, duration: 0.85),
+                        .rotateBy(x: 0, y: 0, z: -0.20, duration: 0.85)
+                    ])
+                ),
+                forKey: "tail"
+            )
+            leftEar.runAction(earTwitch(delay: 1.3), forKey: "leftEarTwitch")
+            rightEar.runAction(earTwitch(delay: 2.0), forKey: "rightEarTwitch")
+            [leftEye, rightEye, leftPupil, rightPupil].forEach { node in
+                node.runAction(blinkLoop(), forKey: "blink")
+            }
+        }
+
+        private func earTwitch(delay: TimeInterval) -> SCNAction {
+            .repeatForever(
+                .sequence([
+                    .wait(duration: delay),
+                    .rotateBy(x: 0, y: 0, z: 0.10, duration: 0.08),
+                    .rotateBy(x: 0, y: 0, z: -0.10, duration: 0.12),
+                    .wait(duration: 2.4)
+                ])
+            )
+        }
+
+        private func blinkLoop() -> SCNAction {
+            .repeatForever(
+                .sequence([
+                    .wait(duration: 2.4),
+                    .scale(to: 0.16, duration: 0.055),
+                    .scale(to: 1.0, duration: 0.075),
+                    .wait(duration: 1.35)
+                ])
+            )
+        }
+
+        private func animateMood(_ mood: TerminalMood) {
+            let hop: CGFloat = mood == .success ? 0.14 : 0.08
+            let duration = mood == .error ? 0.08 : 0.14
+            root.runAction(
+                .sequence([
+                    .moveBy(x: 0, y: hop, z: 0, duration: duration),
+                    .moveBy(x: 0, y: -hop, z: 0, duration: duration * 1.4)
+                ]),
+                forKey: "moodHop"
+            )
+        }
+
+        private func material(diffuse: NSColor, specular: NSColor, roughness: CGFloat) -> SCNMaterial {
+            let material = SCNMaterial()
+            material.diffuse.contents = diffuse
+            material.specular.contents = specular
+            material.roughness.contents = roughness
+            material.lightingModel = .physicallyBased
+            return material
+        }
+
+        private func nsColor(for mood: TerminalMood) -> NSColor {
+            switch mood {
+            case .idle:
+                return .systemPink
+            case .active:
+                return .systemCyan
+            case .running:
+                return .systemOrange
+            case .success:
+                return .systemGreen
+            case .error:
+                return .systemRed
+            }
+        }
+    }
+}
+
 struct TerminalSpeechBubble: View {
     let text: String
 
@@ -601,36 +1045,25 @@ struct Plush3DCatIcon: View {
             ZStack {
                 mascotAura
 
-                if let catImage = isPointerNear ? CatIconAsset.focusImage : CatIconAsset.idleImage {
-                    Image(nsImage: catImage)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFit()
-                        .frame(width: 144, height: 144)
-                        .offset(
-                            x: pointerVector.width * (isDragging ? 16 : 9),
-                            y: -pointerVector.height * (isDragging ? 13 : 8) + (isPressed ? 7 : 0)
-                        )
-                        .scaleEffect(
-                            x: mascotScaleX,
-                            y: mascotScaleY,
-                            anchor: .bottom
-                        )
-                        .rotationEffect(
-                            .degrees(Double(pointerVector.width * 10) + idleTilt),
-                            anchor: .bottom
-                        )
-                        .shadow(color: effectiveMood.color.opacity(isTerminalActive ? 0.38 : 0.18), radius: isTerminalActive ? 18 : 10, x: 0, y: 8)
-                        .animation(
-                            .easeInOut(duration: 2.6 + Double(displayNumber % 4) * 0.13)
-                                .repeatForever(autoreverses: true),
-                            value: isAwake
-                        )
-                        .animation(.spring(response: 0.24, dampingFraction: 0.74), value: isPointerNear)
-                        .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.82), value: pointerVector)
-                } else {
-                    vectorFallbackCat
-                }
+                Mascot3DSceneView(
+                    tint: tint,
+                    mood: effectiveMood,
+                    pointerVector: pointerVector,
+                    isPointerNear: isPointerNear,
+                    isHovering: isHovering,
+                    isPressed: isPressed,
+                    isDragging: isDragging,
+                    isTerminalActive: isTerminalActive
+                )
+                .frame(width: 144, height: 144)
+                .offset(
+                    x: pointerVector.width * (isDragging ? 10 : 4),
+                    y: -pointerVector.height * (isDragging ? 7 : 3) + (isPressed ? 7 : 0)
+                )
+                .scaleEffect(x: mascotScaleX, y: mascotScaleY, anchor: .bottom)
+                .rotationEffect(.degrees(Double(pointerVector.width * 4) + idleTilt), anchor: .bottom)
+                .animation(.spring(response: 0.24, dampingFraction: 0.74), value: isPointerNear)
+                .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.82), value: pointerVector)
 
                 if isPointerNear || isHovering || isTerminalActive {
                     pointerFocusGlint
