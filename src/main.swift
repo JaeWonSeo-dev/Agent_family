@@ -3,7 +3,6 @@ import AppKit
 import CoreGraphics
 import ApplicationServices
 import Combine
-import SceneKit
 
 @main
 struct AgentFamilyApp: App {
@@ -98,22 +97,7 @@ private extension AppDelegate {
 
     func upsertEmptyWindow() {
         let view = AnyView(
-            Plush3DCatIcon(
-                tint: .gray,
-                isSelected: false,
-                displayNumber: 0,
-                isAwake: true,
-                isBlinking: false,
-                isPointerNear: false,
-                pointerVector: .zero,
-                isHovering: false,
-                isPressed: false,
-                isDragging: false,
-                isTerminalActive: false,
-                mood: .idle,
-                characterState: .idle,
-                dragBounce: false
-            )
+            TerminalLauncherIcon(tint: .gray, displayNumber: 0, isActive: false, isPressed: false)
                 .frame(width: 146, height: 158)
                 .contextMenu {
                     Button("새로고침") { self.store.refresh() }
@@ -329,22 +313,7 @@ struct FloatingTerminalOverlay: View {
     }
 
     private var emptyState: some View {
-        Plush3DCatIcon(
-            tint: .gray,
-            isSelected: false,
-            displayNumber: 0,
-            isAwake: true,
-            isBlinking: false,
-            isPointerNear: false,
-            pointerVector: .zero,
-            isHovering: false,
-            isPressed: false,
-            isDragging: false,
-            isTerminalActive: false,
-            mood: .idle,
-            characterState: .idle,
-            dragBounce: false
-        )
+        TerminalLauncherIcon(tint: .gray, displayNumber: 0, isActive: false, isPressed: false)
             .help("감지된 터미널 없음 · 우클릭으로 새로고침")
     }
 }
@@ -358,8 +327,6 @@ struct FloatingTerminalCat: View {
     let onSolo: () -> Void
     let onNewTab: () -> Void
     let onClear: () -> Void
-    @State private var livePhase = false
-    @State private var blinkPhase = false
     @State private var windowFrameProvider: (() -> CGRect)?
     @State private var windowProvider: (() -> NSWindow?)?
     @State private var pointerVector = CGSize.zero
@@ -367,9 +334,7 @@ struct FloatingTerminalCat: View {
     @State private var isHovering = false
     @State private var isPressed = false
     @State private var isDragging = false
-    @State private var isReturning = false
     @State private var dragStartFrame: CGRect?
-    @State private var dragBounce = false
     @State private var isTerminalActive = false
     private let pointerTimer = Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()
 
@@ -380,21 +345,16 @@ struct FloatingTerminalCat: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
 
-            Plush3DCatIcon(
+            TerminalLauncherIcon(
                 tint: terminal.tint,
-                isSelected: isSelected,
                 displayNumber: displayNumber,
-                isAwake: livePhase,
-                isBlinking: blinkPhase,
+                isActive: isTerminalActive,
                 isPointerNear: isPointerNear,
-                pointerVector: pointerVector,
                 isHovering: isHovering,
                 isPressed: isPressed,
                 isDragging: isDragging,
-                isTerminalActive: isTerminalActive,
-                mood: terminal.mood,
-                characterState: characterState,
-                dragBounce: dragBounce
+                pointerVector: pointerVector,
+                mood: terminal.mood
             )
                 .offset(y: floatPhase ? -4 : 4)
                 .animation(
@@ -415,8 +375,7 @@ struct FloatingTerminalCat: View {
         }
         .simultaneousGesture(dragGesture)
         .onAppear {
-            livePhase = true
-            scheduleBlink()
+            updatePointerReaction()
         }
         .onReceive(pointerTimer) { _ in
             updatePointerReaction()
@@ -431,17 +390,6 @@ struct FloatingTerminalCat: View {
             Text(terminal.shortTitle)
         }
         .help("\(terminal.appName): \(terminal.title.isEmpty ? "Untitled" : terminal.title)")
-    }
-
-    private func scheduleBlink() {
-        let delay = 1.6 + Double(displayNumber % 5) * 0.43
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            blinkPhase = true
-            try? await Task.sleep(nanoseconds: 120_000_000)
-            blinkPhase = false
-            scheduleBlink()
-        }
     }
 
     private func updatePointerReaction() {
@@ -486,18 +434,7 @@ struct FloatingTerminalCat: View {
                 isDragging = false
                 isPressed = false
                 dragStartFrame = nil
-                triggerDragBounce()
             }
-    }
-
-    private var characterState: CatCharacterState {
-        if isDragging { return .dragging }
-        if isPressed { return .pressed }
-        if isReturning { return .returning }
-        if isHovering { return .hover }
-        if isPointerNear { return .attention }
-        if isTerminalActive { return .terminalActive }
-        return .idle
     }
 
     private func clampedWindowOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
@@ -520,15 +457,6 @@ struct FloatingTerminalCat: View {
         }
     }
 
-    private func triggerDragBounce() {
-        isReturning = true
-        dragBounce = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 220_000_000)
-            dragBounce = false
-            isReturning = false
-        }
-    }
 }
 
 struct WindowFrameReader: NSViewRepresentable {
@@ -555,618 +483,6 @@ struct WindowFrameReader: NSViewRepresentable {
             }
             windowProvider = { [weak nsView] in
                 nsView?.window
-            }
-        }
-    }
-}
-
-struct Mascot3DSceneView: NSViewRepresentable {
-    let tint: Color
-    let mood: TerminalMood
-    let characterState: CatCharacterState
-    let pointerVector: CGSize
-    let isPointerNear: Bool
-    let isHovering: Bool
-    let isPressed: Bool
-    let isDragging: Bool
-    let isTerminalActive: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> SCNView {
-        let view = SCNView(frame: .zero)
-        view.scene = context.coordinator.scene
-        view.backgroundColor = .clear
-        view.allowsCameraControl = false
-        view.autoenablesDefaultLighting = false
-        view.rendersContinuously = true
-        view.isPlaying = true
-        view.antialiasingMode = .multisampling4X
-        context.coordinator.update(
-            tint: tint,
-            mood: mood,
-            characterState: characterState,
-            pointerVector: pointerVector,
-            isPointerNear: isPointerNear,
-            isHovering: isHovering,
-            isPressed: isPressed,
-            isDragging: isDragging,
-            isTerminalActive: isTerminalActive
-        )
-        return view
-    }
-
-    func updateNSView(_ nsView: SCNView, context: Context) {
-        context.coordinator.update(
-            tint: tint,
-            mood: mood,
-            characterState: characterState,
-            pointerVector: pointerVector,
-            isPointerNear: isPointerNear,
-            isHovering: isHovering,
-            isPressed: isPressed,
-            isDragging: isDragging,
-            isTerminalActive: isTerminalActive
-        )
-    }
-
-        final class Coordinator {
-        let scene = SCNScene()
-        private let root = SCNNode()
-        private let modelRoot = SCNNode()
-        private let body = SCNNode()
-        private let head = SCNNode()
-        private let leftEar = SCNNode()
-        private let rightEar = SCNNode()
-        private let tail = SCNNode()
-        private let leftEye = SCNNode()
-        private let rightEye = SCNNode()
-        private let leftPupil = SCNNode()
-        private let rightPupil = SCNNode()
-        private let mouth = SCNNode()
-        private let leftWhiskers = SCNNode()
-        private let rightWhiskers = SCNNode()
-        private let leftFoot = SCNNode()
-        private let rightFoot = SCNNode()
-        private let raisedArm = SCNNode()
-        private let raisedPaw = SCNNode()
-        private let moodLight = SCNNode()
-        private var lastMood: TerminalMood = .idle
-
-        init() {
-            buildScene()
-            installIdleAnimations()
-        }
-
-        func update(
-            tint: Color,
-            mood: TerminalMood,
-            characterState: CatCharacterState,
-            pointerVector: CGSize,
-            isPointerNear: Bool,
-            isHovering: Bool,
-            isPressed: Bool,
-            isDragging: Bool,
-            isTerminalActive: Bool
-        ) {
-            let px = pointerVector.width
-            let py = pointerVector.height
-            let pressScaleY: CGFloat = isPressed ? 0.86 : 1.0
-            let pressScaleX: CGFloat = isPressed ? 1.08 : 1.0
-            let dragTilt: CGFloat = isDragging ? px * 0.28 : 0
-            let idleWeight = characterState.idleBlend
-            let attentionWeight = characterState.attentionBlend
-            let time = CGFloat(Date().timeIntervalSinceReferenceDate)
-            let idleHeadX = sin(time * 3.8) * 0.055 * idleWeight
-            let idleHeadY = cos(time * 2.7) * 0.035 * idleWeight
-            let idleHeadZ = sin(time * 2.2) * 0.045 * idleWeight
-            let idleBob = sin(time * 4.1) * 0.030 * idleWeight
-
-            SCNTransaction.begin()
-            SCNTransaction.animationDuration = 0.18
-            root.scale = SCNVector3(pressScaleX, pressScaleY, 1.0)
-            root.eulerAngles.z = dragTilt
-            modelRoot.isPaused = characterState.isAttentive
-            head.eulerAngles = SCNVector3(
-                (-py * 0.28 * attentionWeight) + idleHeadX,
-                (px * 0.42 * attentionWeight) + idleHeadY,
-                (-px * 0.12 * attentionWeight) + idleHeadZ
-            )
-            head.position.y = 0.58 + CGFloat(attentionWeight) * 0.16 + idleBob
-            leftPupil.position.x = -0.18 + px * 0.045
-            leftPupil.position.y = 0.11 + py * 0.035
-            rightPupil.position.x = 0.18 + px * 0.045
-            rightPupil.position.y = 0.11 + py * 0.035
-            leftEar.eulerAngles.z = -0.36 + CGFloat(attentionWeight) * 0.08 - px * 0.08
-            rightEar.eulerAngles.z = 0.36 - CGFloat(attentionWeight) * 0.08 - px * 0.08
-            tail.eulerAngles.z = (characterState == .dragging ? 0.92 : 0.58) + px * 0.18
-            mouth.scale.y = mood == .error ? 1.35 : (mood == .success ? 0.72 : 1.0)
-            moodLight.light?.color = nsColor(for: mood)
-            moodLight.light?.intensity = isTerminalActive ? 520 : 300
-            SCNTransaction.commit()
-
-            if mood != lastMood {
-                lastMood = mood
-                animateMood(mood)
-            }
-        }
-
-        private func buildScene() {
-            scene.background.contents = NSColor.clear
-            scene.rootNode.addChildNode(root)
-            root.addChildNode(modelRoot)
-
-            let camera = SCNCamera()
-            camera.usesOrthographicProjection = true
-            camera.orthographicScale = 3.75
-            let cameraNode = SCNNode()
-            cameraNode.camera = camera
-            cameraNode.position = SCNVector3(0, 0.02, 7)
-            scene.rootNode.addChildNode(cameraNode)
-
-            let ambient = SCNLight()
-            ambient.type = .ambient
-            ambient.intensity = 420
-            ambient.color = NSColor(white: 0.86, alpha: 1)
-            let ambientNode = SCNNode()
-            ambientNode.light = ambient
-            scene.rootNode.addChildNode(ambientNode)
-
-            let key = SCNLight()
-            key.type = .omni
-            key.intensity = 780
-            key.color = NSColor(calibratedRed: 1.0, green: 0.86, blue: 0.78, alpha: 1)
-            let keyNode = SCNNode()
-            keyNode.light = key
-            keyNode.position = SCNVector3(-2.2, 3.2, 4.0)
-            scene.rootNode.addChildNode(keyNode)
-
-            let mood = SCNLight()
-            mood.type = .omni
-            mood.intensity = 300
-            mood.color = NSColor.systemPink
-            moodLight.light = mood
-            moodLight.position = SCNVector3(2.4, 1.8, 3.2)
-            scene.rootNode.addChildNode(moodLight)
-
-            buildAppIconBubble()
-            buildCloud()
-            buildCat()
-        }
-
-        private func buildAppIconBubble() {
-            let backMaterial = material(
-                diffuse: NSColor(calibratedRed: 0.49, green: 0.35, blue: 0.98, alpha: 0.72),
-                specular: NSColor.white.withAlphaComponent(0.62),
-                roughness: 0.24
-            )
-            let back = SCNNode(geometry: SCNPlane(width: 3.25, height: 3.25))
-            (back.geometry as? SCNPlane)?.cornerRadius = 0.42
-            back.geometry?.materials = [backMaterial]
-            back.position = SCNVector3(0, -0.10, -0.72)
-            modelRoot.addChildNode(back)
-
-            let rimMaterial = material(
-                diffuse: NSColor(calibratedRed: 0.79, green: 0.52, blue: 1.0, alpha: 0.86),
-                specular: NSColor.white.withAlphaComponent(0.75),
-                roughness: 0.18
-            )
-            let rim = SCNNode(geometry: SCNTorus(ringRadius: 1.72, pipeRadius: 0.045))
-            rim.geometry?.materials = [rimMaterial]
-            rim.position = SCNVector3(0, -0.10, -0.66)
-            rim.scale = SCNVector3(1.0, 0.86, 0.08)
-            modelRoot.addChildNode(rim)
-
-            let shelf = SCNNode(geometry: SCNCapsule(capRadius: 0.12, height: 2.35))
-            shelf.geometry?.materials = [material(
-                diffuse: NSColor(calibratedRed: 0.34, green: 0.20, blue: 0.84, alpha: 0.92),
-                specular: NSColor.white.withAlphaComponent(0.58),
-                roughness: 0.28
-            )]
-            shelf.position = SCNVector3(0, -1.13, -0.40)
-            shelf.eulerAngles.z = .pi / 2
-            shelf.scale = SCNVector3(1.0, 0.62, 0.30)
-            modelRoot.addChildNode(shelf)
-        }
-
-        private func buildCloud() {
-            let cloudMaterial = material(
-                diffuse: NSColor(calibratedRed: 1.0, green: 0.61, blue: 0.70, alpha: 1),
-                specular: NSColor.white.withAlphaComponent(0.25),
-                roughness: 0.72
-            )
-            let positions: [(Float, Float, Float, Float)] = [
-                (-0.78, -1.18, 0.38, 0.58),
-                (-0.30, -1.03, 0.42, 0.58),
-                (0.22, -1.02, 0.45, 0.62),
-                (0.73, -1.15, 0.38, 0.56),
-                (0.00, -1.32, 0.58, 0.34)
-            ]
-            for item in positions {
-                let node = SCNNode(geometry: SCNSphere(radius: CGFloat(item.2)))
-                node.geometry?.materials = [cloudMaterial]
-                node.position = SCNVector3(item.0, item.1, 0)
-                node.scale = SCNVector3(1.22, item.3, 0.58)
-                modelRoot.addChildNode(node)
-            }
-        }
-
-        private func buildCat() {
-            let fur = material(
-                diffuse: NSColor(calibratedRed: 0.82, green: 0.62, blue: 0.45, alpha: 1),
-                specular: NSColor.white.withAlphaComponent(0.34),
-                roughness: 0.58
-            )
-            let cream = material(
-                diffuse: NSColor(calibratedRed: 1.0, green: 0.91, blue: 0.80, alpha: 1),
-                specular: NSColor.white.withAlphaComponent(0.30),
-                roughness: 0.62
-            )
-            let stripe = material(
-                diffuse: NSColor(calibratedRed: 0.22, green: 0.13, blue: 0.09, alpha: 1),
-                specular: NSColor.white.withAlphaComponent(0.12),
-                roughness: 0.72
-            )
-            let pink = material(
-                diffuse: NSColor(calibratedRed: 1.0, green: 0.38, blue: 0.36, alpha: 1),
-                specular: NSColor.white.withAlphaComponent(0.38),
-                roughness: 0.48
-            )
-            let white = material(diffuse: .white, specular: .white, roughness: 0.35)
-            let green = material(
-                diffuse: NSColor(calibratedRed: 0.50, green: 0.64, blue: 0.25, alpha: 1),
-                specular: .white,
-                roughness: 0.28
-            )
-            let black = material(diffuse: .black, specular: .white, roughness: 0.22)
-
-            body.geometry = SCNSphere(radius: 0.66)
-            body.geometry?.materials = [fur]
-            body.position = SCNVector3(0.20, -0.44, -0.02)
-            body.scale = SCNVector3(0.86, 0.98, 0.64)
-            modelRoot.addChildNode(body)
-
-            let belly = SCNNode(geometry: SCNSphere(radius: 0.48))
-            belly.geometry?.materials = [cream]
-            belly.position = SCNVector3(-0.06, -0.38, 0.40)
-            belly.scale = SCNVector3(0.76, 1.05, 0.16)
-            body.addChildNode(belly)
-
-            head.geometry = SCNSphere(radius: 0.90)
-            head.geometry?.materials = [fur]
-            head.position = SCNVector3(0.08, 0.58, 0.06)
-            head.scale = SCNVector3(1.12, 1.00, 0.76)
-            modelRoot.addChildNode(head)
-
-            let muzzle = SCNNode(geometry: SCNSphere(radius: 0.33))
-            muzzle.geometry?.materials = [cream]
-            muzzle.position = SCNVector3(0.00, -0.20, 0.68)
-            muzzle.scale = SCNVector3(1.34, 0.70, 0.36)
-            head.addChildNode(muzzle)
-
-            leftEar.geometry = SCNCone(topRadius: 0, bottomRadius: 0.32, height: 0.78)
-            rightEar.geometry = SCNCone(topRadius: 0, bottomRadius: 0.32, height: 0.78)
-            leftEar.geometry?.materials = [fur]
-            rightEar.geometry?.materials = [fur]
-            leftEar.position = SCNVector3(-0.56, 0.62, 0.00)
-            rightEar.position = SCNVector3(0.56, 0.62, 0.00)
-            leftEar.eulerAngles = SCNVector3(0, 0, -0.36)
-            rightEar.eulerAngles = SCNVector3(0, 0, 0.36)
-            head.addChildNode(leftEar)
-            head.addChildNode(rightEar)
-
-            addInnerEar(to: leftEar, material: pink)
-            addInnerEar(to: rightEar, material: pink)
-
-            for x in [-0.25, -0.08, 0.10, 0.27] {
-                let mark = SCNNode(geometry: SCNCapsule(capRadius: 0.040, height: 0.38))
-                mark.geometry?.materials = [stripe]
-                mark.position = SCNVector3(Float(x), 0.45, 0.70)
-                mark.eulerAngles.x = .pi / 2
-                mark.eulerAngles.z = CGFloat(x) * -0.55
-                mark.scale = SCNVector3(0.72, 1, 1)
-                head.addChildNode(mark)
-            }
-
-            addFaceStripes(material: stripe)
-
-            addEye(isLeft: true, white: white, green: green, black: black)
-            addEye(isLeft: false, white: white, green: green, black: black)
-
-            let nose = SCNNode(geometry: SCNSphere(radius: 0.085))
-            nose.geometry?.materials = [pink]
-            nose.position = SCNVector3(0, -0.10, 0.89)
-            nose.scale = SCNVector3(1.30, 0.76, 0.70)
-            head.addChildNode(nose)
-
-            mouth.geometry = SCNTorus(ringRadius: 0.115, pipeRadius: 0.012)
-            mouth.geometry?.materials = [black]
-            mouth.position = SCNVector3(0, -0.27, 0.86)
-            mouth.scale = SCNVector3(0.86, 0.50, 0.16)
-            head.addChildNode(mouth)
-
-            addWhiskers(material: cream)
-            addPaws(material: cream, pink: pink)
-            addRaisedPaw(material: cream, pink: pink, stripe: stripe)
-
-            tail.geometry = SCNCapsule(capRadius: 0.11, height: 1.08)
-            tail.geometry?.materials = [fur]
-            tail.position = SCNVector3(0.78, -0.72, -0.12)
-            tail.eulerAngles = SCNVector3(0.16, -0.20, -0.82)
-            modelRoot.addChildNode(tail)
-        }
-
-        private func addInnerEar(to ear: SCNNode, material: SCNMaterial) {
-            let inner = SCNNode(geometry: SCNCone(topRadius: 0, bottomRadius: 0.15, height: 0.42))
-            inner.geometry?.materials = [material]
-            inner.position = SCNVector3(0, -0.03, 0.045)
-            inner.scale = SCNVector3(0.70, 0.70, 0.18)
-            ear.addChildNode(inner)
-        }
-
-        private func addEye(isLeft: Bool, white: SCNMaterial, green: SCNMaterial, black: SCNMaterial) {
-            let sign: Float = isLeft ? -1 : 1
-            let eye = isLeft ? leftEye : rightEye
-            eye.geometry = SCNSphere(radius: 0.245)
-            eye.geometry?.materials = [white]
-            eye.position = SCNVector3(sign * 0.34, 0.06, 0.77)
-            eye.scale = SCNVector3(0.90, 1.18, 0.28)
-            head.addChildNode(eye)
-
-            let iris = SCNNode(geometry: SCNSphere(radius: 0.155))
-            iris.geometry?.materials = [green]
-            iris.position = SCNVector3(0, 0, 0.103)
-            iris.scale = SCNVector3(0.94, 1.08, 0.16)
-            eye.addChildNode(iris)
-
-            let pupil = isLeft ? leftPupil : rightPupil
-            pupil.geometry = SCNSphere(radius: 0.094)
-            pupil.geometry?.materials = [black]
-            pupil.position = SCNVector3(sign * 0.34, 0.06, 0.91)
-            pupil.scale = SCNVector3(0.90, 1.22, 0.16)
-            head.addChildNode(pupil)
-
-            let shine = SCNNode(geometry: SCNSphere(radius: 0.040))
-            shine.geometry?.materials = [material(diffuse: .white, specular: .white, roughness: 0.18)]
-            shine.position = SCNVector3(sign * 0.27, 0.17, 0.97)
-            head.addChildNode(shine)
-        }
-
-        private func addFaceStripes(material: SCNMaterial) {
-            for side: Float in [-1, 1] {
-                for index in 0..<2 {
-                    let stripeNode = SCNNode(geometry: SCNCapsule(capRadius: 0.026, height: 0.46))
-                    stripeNode.geometry?.materials = [material]
-                    stripeNode.position = SCNVector3(side * 0.60, Float(index) * -0.13 + 0.03, 0.66)
-                    stripeNode.eulerAngles = SCNVector3(0.10, side * 0.18, side * (1.06 + Float(index) * 0.16))
-                    stripeNode.scale = SCNVector3(1.0, 0.82, 1.0)
-                    head.addChildNode(stripeNode)
-                }
-            }
-        }
-
-        private func addWhiskers(material: SCNMaterial) {
-            for side: Float in [-1, 1] {
-                let group = side < 0 ? leftWhiskers : rightWhiskers
-                group.position = SCNVector3(side * 0.38, -0.11, 0.73)
-                head.addChildNode(group)
-                for index in 0..<3 {
-                    let whisker = SCNNode(geometry: SCNCapsule(capRadius: 0.007, height: 0.52))
-                    whisker.geometry?.materials = [material]
-                    whisker.position = SCNVector3(side * 0.25, Float(index - 1) * 0.055, 0)
-                    whisker.eulerAngles = SCNVector3(0, 0, side * (Float.pi / 2 + Float(index - 1) * 0.12))
-                    group.addChildNode(whisker)
-                }
-            }
-        }
-
-        private func addPaws(material: SCNMaterial, pink: SCNMaterial) {
-            for (index, x) in [Float(-0.12), Float(0.47)].enumerated() {
-                let paw = index == 0 ? leftFoot : rightFoot
-                paw.geometry = SCNSphere(radius: 0.22)
-                paw.geometry?.materials = [material]
-                paw.position = SCNVector3(x, -0.96, 0.55)
-                paw.scale = SCNVector3(1.08, 0.76, 0.48)
-                modelRoot.addChildNode(paw)
-
-                let pad = SCNNode(geometry: SCNSphere(radius: 0.065))
-                pad.geometry?.materials = [pink]
-                pad.position = SCNVector3(0, -0.03, 0.16)
-                pad.scale = SCNVector3(1.15, 0.76, 0.30)
-                paw.addChildNode(pad)
-            }
-        }
-
-        private func addRaisedPaw(material: SCNMaterial, pink: SCNMaterial, stripe: SCNMaterial) {
-            raisedArm.geometry = SCNCapsule(capRadius: 0.13, height: 0.74)
-            raisedArm.geometry?.materials = [material]
-            raisedArm.position = SCNVector3(-0.80, -0.24, 0.36)
-            raisedArm.eulerAngles = SCNVector3(0.10, 0.0, -0.74)
-            modelRoot.addChildNode(raisedArm)
-
-            raisedPaw.geometry = SCNSphere(radius: 0.25)
-            raisedPaw.geometry?.materials = [material]
-            raisedPaw.position = SCNVector3(-1.08, 0.12, 0.62)
-            raisedPaw.scale = SCNVector3(0.94, 1.08, 0.48)
-            modelRoot.addChildNode(raisedPaw)
-
-            let centerPad = SCNNode(geometry: SCNSphere(radius: 0.080))
-            centerPad.geometry?.materials = [pink]
-            centerPad.position = SCNVector3(0.00, -0.03, 0.18)
-            centerPad.scale = SCNVector3(1.20, 0.86, 0.28)
-            raisedPaw.addChildNode(centerPad)
-
-            for (x, y) in [(-0.09, 0.08), (0.00, 0.12), (0.09, 0.08)] {
-                let toe = SCNNode(geometry: SCNSphere(radius: 0.043))
-                toe.geometry?.materials = [pink]
-                toe.position = SCNVector3(Float(x), Float(y), 0.18)
-                toe.scale = SCNVector3(1.0, 0.80, 0.26)
-                raisedPaw.addChildNode(toe)
-            }
-
-            for offset: Float in [-0.13, 0.03] {
-                let band = SCNNode(geometry: SCNCapsule(capRadius: 0.020, height: 0.30))
-                band.geometry?.materials = [stripe]
-                band.position = SCNVector3(-0.76 + offset, -0.34 + offset * 0.6, 0.52)
-                band.eulerAngles = SCNVector3(0.10, 0.0, -0.74)
-                modelRoot.addChildNode(band)
-            }
-        }
-
-        private func installIdleAnimations() {
-            modelRoot.runAction(
-                .repeatForever(
-                    .sequence([
-                        .group([
-                            .moveBy(x: 0.10, y: 0.06, z: 0, duration: 0.42),
-                            .rotateBy(x: 0, y: 0, z: -0.055, duration: 0.42)
-                        ]),
-                        .group([
-                            .moveBy(x: -0.20, y: -0.02, z: 0, duration: 0.54),
-                            .rotateBy(x: 0, y: 0, z: 0.11, duration: 0.54)
-                        ]),
-                        .group([
-                            .moveBy(x: 0.10, y: -0.04, z: 0, duration: 0.42),
-                            .rotateBy(x: 0, y: 0, z: -0.055, duration: 0.42)
-                        ])
-                    ])
-                ),
-                forKey: "danceWeightShift"
-            )
-            modelRoot.runAction(
-                .repeatForever(
-                    .sequence([
-                        .moveBy(x: 0, y: 0.045, z: 0, duration: 1.35),
-                        .moveBy(x: 0, y: -0.045, z: 0, duration: 1.35)
-                    ])
-                ),
-                forKey: "float"
-            )
-            body.runAction(
-                .repeatForever(
-                    .sequence([
-                        .scale(to: 1.025, duration: 1.45),
-                        .scale(to: 1.0, duration: 1.45)
-                    ])
-                ),
-                forKey: "breathing"
-            )
-            head.runAction(
-                .repeatForever(
-                    .sequence([
-                        .rotateBy(x: 0.045, y: 0.030, z: -0.035, duration: 0.54),
-                        .rotateBy(x: -0.090, y: -0.050, z: 0.070, duration: 0.62),
-                        .rotateBy(x: 0.045, y: 0.020, z: -0.035, duration: 0.48)
-                    ])
-                ),
-                forKey: "headDance"
-            )
-            tail.runAction(
-                .repeatForever(
-                    .sequence([
-                        .rotateBy(x: 0, y: 0, z: 0.20, duration: 0.85),
-                        .rotateBy(x: 0, y: 0, z: -0.20, duration: 0.85)
-                    ])
-                ),
-                forKey: "tail"
-            )
-            raisedArm.runAction(
-                .repeatForever(
-                    .sequence([
-                        .rotateBy(x: 0.0, y: 0.0, z: -0.22, duration: 0.36),
-                        .rotateBy(x: 0.0, y: 0.0, z: 0.35, duration: 0.46),
-                        .rotateBy(x: 0.0, y: 0.0, z: -0.13, duration: 0.34)
-                    ])
-                ),
-                forKey: "pawWaveArm"
-            )
-            raisedPaw.runAction(
-                .repeatForever(
-                    .sequence([
-                        .moveBy(x: -0.04, y: 0.10, z: 0.02, duration: 0.36),
-                        .moveBy(x: 0.08, y: -0.18, z: -0.02, duration: 0.46),
-                        .moveBy(x: -0.04, y: 0.08, z: 0.0, duration: 0.34)
-                    ])
-                ),
-                forKey: "pawWave"
-            )
-            leftFoot.runAction(footTap(delay: 0.0), forKey: "leftFootTap")
-            rightFoot.runAction(footTap(delay: 0.42), forKey: "rightFootTap")
-            leftEar.runAction(earTwitch(delay: 1.3), forKey: "leftEarTwitch")
-            rightEar.runAction(earTwitch(delay: 2.0), forKey: "rightEarTwitch")
-            [leftEye, rightEye, leftPupil, rightPupil].forEach { node in
-                node.runAction(blinkLoop(), forKey: "blink")
-            }
-        }
-
-        private func earTwitch(delay: TimeInterval) -> SCNAction {
-            .repeatForever(
-                .sequence([
-                    .wait(duration: delay),
-                    .rotateBy(x: 0, y: 0, z: 0.10, duration: 0.08),
-                    .rotateBy(x: 0, y: 0, z: -0.10, duration: 0.12),
-                    .wait(duration: 2.4)
-                ])
-            )
-        }
-
-        private func footTap(delay: TimeInterval) -> SCNAction {
-            .repeatForever(
-                .sequence([
-                    .wait(duration: delay),
-                    .moveBy(x: 0, y: 0.055, z: 0.04, duration: 0.18),
-                    .moveBy(x: 0, y: -0.055, z: -0.04, duration: 0.18),
-                    .wait(duration: 0.82)
-                ])
-            )
-        }
-
-        private func blinkLoop() -> SCNAction {
-            .repeatForever(
-                .sequence([
-                    .wait(duration: 2.4),
-                    .scale(to: 0.16, duration: 0.055),
-                    .scale(to: 1.0, duration: 0.075),
-                    .wait(duration: 1.35)
-                ])
-            )
-        }
-
-        private func animateMood(_ mood: TerminalMood) {
-            let hop: CGFloat = mood == .success ? 0.14 : 0.08
-            let duration = mood == .error ? 0.08 : 0.14
-            root.runAction(
-                .sequence([
-                    .moveBy(x: 0, y: hop, z: 0, duration: duration),
-                    .moveBy(x: 0, y: -hop, z: 0, duration: duration * 1.4)
-                ]),
-                forKey: "moodHop"
-            )
-        }
-
-        private func material(diffuse: NSColor, specular: NSColor, roughness: CGFloat) -> SCNMaterial {
-            let material = SCNMaterial()
-            material.diffuse.contents = diffuse
-            material.specular.contents = specular
-            material.roughness.contents = roughness
-            material.lightingModel = .physicallyBased
-            return material
-        }
-
-        private func nsColor(for mood: TerminalMood) -> NSColor {
-            switch mood {
-            case .idle:
-                return .systemPink
-            case .active:
-                return .systemCyan
-            case .running:
-                return .systemOrange
-            case .success:
-                return .systemGreen
-            case .error:
-                return .systemRed
             }
         }
     }
@@ -1210,67 +526,63 @@ struct Triangle: Shape {
     }
 }
 
-struct Plush3DCatIcon: View {
+struct TerminalLauncherIcon: View {
     let tint: Color
-    let isSelected: Bool
     let displayNumber: Int
-    let isAwake: Bool
-    let isBlinking: Bool
-    let isPointerNear: Bool
-    let pointerVector: CGSize
-    let isHovering: Bool
-    let isPressed: Bool
-    let isDragging: Bool
-    let isTerminalActive: Bool
-    let mood: TerminalMood
-    let characterState: CatCharacterState
-    let dragBounce: Bool
+    let isActive: Bool
+    var isPointerNear = false
+    var isHovering = false
+    var isPressed = false
+    var isDragging = false
+    var pointerVector = CGSize.zero
+    var mood: TerminalMood = .idle
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             ZStack {
-                mascotAura
+                launcherShadow
 
-                Mascot3DSceneView(
-                    tint: tint,
-                    mood: effectiveMood,
-                    characterState: characterState,
-                    pointerVector: pointerVector,
-                    isPointerNear: isPointerNear,
-                    isHovering: isHovering,
-                    isPressed: isPressed,
-                    isDragging: isDragging,
-                    isTerminalActive: isTerminalActive
-                )
-                .frame(width: 144, height: 144)
-                .offset(
-                    x: pointerVector.width * (isDragging ? 10 : 4),
-                    y: -pointerVector.height * (isDragging ? 7 : 3) + (isPressed ? 7 : 0)
-                )
-                .scaleEffect(x: mascotScaleX, y: mascotScaleY, anchor: .bottom)
-                .rotationEffect(.degrees(Double(pointerVector.width * 4) + idleTilt), anchor: .bottom)
-                .animation(.spring(response: 0.24, dampingFraction: 0.74), value: isPointerNear)
-                .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.82), value: pointerVector)
+                RoundedRectangle(cornerRadius: 32)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                effectiveMood.color.opacity(isActive ? 0.94 : 0.70),
+                                tint.opacity(isActive ? 0.88 : 0.62),
+                                .black.opacity(0.74)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 96, height: 96)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 32)
+                            .stroke(.white.opacity(isActive ? 0.46 : 0.25), lineWidth: 1.5)
+                    )
+                    .shadow(color: effectiveMood.color.opacity(isActive ? 0.34 : 0.16), radius: isActive ? 22 : 12, x: 0, y: 8)
 
-                if isPointerNear || isHovering || isTerminalActive {
-                    pointerFocusGlint
+                Image(systemName: isActive ? "terminal.fill" : "terminal")
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.96))
+                    .offset(x: pointerVector.width * 5, y: -pointerVector.height * 4)
+
+                if isPointerNear || isHovering || isActive {
+                    effectiveMood.symbol
+                        .font(.system(size: 12, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(effectiveMood.color.opacity(0.92), in: Circle())
+                        .overlay(Circle().stroke(.white.opacity(0.65), lineWidth: 1))
+                        .offset(x: -36, y: -40)
+                        .transition(.opacity.combined(with: .scale(scale: 0.86)))
                 }
-
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.94))
-                    .frame(width: 20, height: 20)
-                    .background(effectiveMood.color.opacity(0.92), in: Circle())
-                    .overlay(Circle().stroke(.white.opacity(0.45), lineWidth: 1))
-                    .scaleEffect(isTerminalActive ? 1.12 : 1.0)
-                    .offset(x: 44, y: 55 + (isPressed ? 3 : 0))
             }
             .frame(width: 146, height: 146)
-            .shadow(color: effectiveMood.color.opacity(isSelected ? 0.24 : 0.10), radius: isSelected ? 20 : 10, x: 0, y: 8)
-            .shadow(color: .black.opacity(isPressed ? 0.10 : 0.18), radius: isPressed ? 5 : 10, x: 0, y: isPressed ? 3 : 8)
-            .offset(y: dragBounce ? -5 : 0)
-            .animation(.spring(response: 0.26, dampingFraction: 0.48), value: dragBounce)
+            .scaleEffect(isPressed ? 0.92 : (isHovering || isPointerNear ? 1.05 : 1.0))
+            .rotationEffect(.degrees(isDragging ? Double(pointerVector.width * 10) : Double(pointerVector.width * 3)))
             .animation(.spring(response: 0.18, dampingFraction: 0.72), value: isPressed)
+            .animation(.spring(response: 0.24, dampingFraction: 0.70), value: isHovering)
+            .animation(.interactiveSpring(response: 0.16, dampingFraction: 0.78), value: pointerVector)
 
             if displayNumber > 0 {
                 Text("\(displayNumber)")
@@ -1279,42 +591,22 @@ struct Plush3DCatIcon: View {
                     .frame(width: 18, height: 18)
                     .background(effectiveMood.color, in: Circle())
                     .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 1))
-                    .offset(x: -2, y: -6)
+                    .offset(x: -16, y: -18)
             }
         }
     }
 
-    private var mascotScaleX: CGFloat {
-        if isPressed { return 1.08 }
-        if isDragging { return 1.04 }
-        if isHovering || isPointerNear { return 1.035 }
-        return isAwake ? 1.018 : 0.992
-    }
-
-    private var mascotScaleY: CGFloat {
-        if isPressed { return 0.90 }
-        if isDragging { return 0.96 }
-        if isHovering || isPointerNear { return 1.015 }
-        return isAwake ? 0.992 : 1.018
-    }
-
-    private var idleTilt: Double {
-        if isPressed { return 0 }
-        if isDragging { return Double(pointerVector.width * 12) }
-        return isAwake ? 0.8 : -0.8
-    }
-
     private var effectiveMood: TerminalMood {
-        isTerminalActive && mood == .idle ? .active : mood
+        isActive && mood == .idle ? .active : mood
     }
 
-    private var mascotAura: some View {
+    private var launcherShadow: some View {
         ZStack {
             Circle()
                 .fill(
                     RadialGradient(
                         colors: [
-                            effectiveMood.color.opacity(isTerminalActive ? 0.30 : 0.16),
+                            effectiveMood.color.opacity(isActive ? 0.28 : 0.14),
                             effectiveMood.color.opacity(0.04),
                             .clear
                         ],
@@ -1323,37 +615,18 @@ struct Plush3DCatIcon: View {
                         endRadius: 74
                     )
                 )
-                .frame(width: isHovering || isPointerNear ? 136 : 118, height: isHovering || isPointerNear ? 136 : 118)
+                .frame(width: isHovering || isPointerNear ? 132 : 112, height: isHovering || isPointerNear ? 132 : 112)
                 .blur(radius: 6)
 
             Capsule()
                 .fill(.black.opacity(isPressed ? 0.12 : 0.18))
-                .frame(width: isPressed ? 82 : 96, height: isPressed ? 14 : 18)
+                .frame(width: isPressed ? 70 : 88, height: isPressed ? 12 : 16)
                 .blur(radius: 7)
-                .offset(y: 66)
+                .offset(y: 56)
         }
         .animation(.easeInOut(duration: 0.18), value: isHovering)
         .animation(.easeInOut(duration: 0.18), value: isPointerNear)
-        .animation(.easeInOut(duration: 0.18), value: isTerminalActive)
-    }
-
-    private var pointerFocusGlint: some View {
-        ZStack {
-            Circle()
-                .fill(.white.opacity(isTerminalActive ? 0.75 : 0.55))
-                .frame(width: 6, height: 6)
-                .offset(x: 26 + pointerVector.width * 6, y: -23 - pointerVector.height * 5)
-
-            effectiveMood.symbol
-                .font(.system(size: 12, weight: .black, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(width: 20, height: 20)
-                .background(effectiveMood.color.opacity(0.88), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.70), lineWidth: 1))
-                .offset(x: -45, y: -50)
-                .scaleEffect(isTerminalActive ? 1.08 : 1.0)
-        }
-        .transition(.opacity.combined(with: .scale(scale: 0.88)))
+        .animation(.easeInOut(duration: 0.18), value: isActive)
     }
 
 }
@@ -1418,44 +691,6 @@ enum TerminalMood: Equatable {
         case .error:
             return Image(systemName: "exclamationmark")
         }
-    }
-}
-
-enum CatCharacterState: Equatable {
-    case idle
-    case attention
-    case hover
-    case pressed
-    case dragging
-    case returning
-    case terminalActive
-
-    var isAttentive: Bool {
-        switch self {
-        case .attention, .hover, .pressed, .dragging, .returning, .terminalActive:
-            return true
-        case .idle:
-            return false
-        }
-    }
-
-    var attentionBlend: CGFloat {
-        switch self {
-        case .idle:
-            return 0.0
-        case .attention:
-            return 0.55
-        case .hover, .terminalActive:
-            return 0.78
-        case .pressed, .dragging:
-            return 1.0
-        case .returning:
-            return 0.35
-        }
-    }
-
-    var idleBlend: CGFloat {
-        max(0, 1 - attentionBlend)
     }
 }
 
