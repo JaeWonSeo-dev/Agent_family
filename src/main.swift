@@ -538,97 +538,377 @@ struct TerminalLauncherIcon: View {
     var mood: TerminalMood = .idle
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            ZStack {
-                launcherShadow
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate + Double(displayNumber) * 0.37
+            let attention = min(max((isPointerNear ? 0.74 : 0) + (isHovering ? 0.26 : 0), 0), 1)
+            let idle = 1 - attention
+            let bounce = sin(time * 5.4) * 5.5 * idle
+            let breathe = 1 + sin(time * 3.1) * 0.035 * idle
+            let sway = sin(time * 2.15) * 5.2 * idle
+            let blink = blinkAmount(time)
+            let clickSquashX = isPressed ? 1.15 : 1.0
+            let clickSquashY = isPressed ? 0.82 : 1.0
+            let dragLean = isDragging ? pointerVector.width * 20 : pointerVector.width * 8
+            let headX = pointerVector.width * 11 * attention + sin(time * 2.3) * 2.8 * idle
+            let headY = -pointerVector.height * 7 * attention + cos(time * 2.0) * 2.2 * idle
+            let earTwitch = earTwitchAmount(time) * idle + attention * 10
+            let tailWave = sin(time * 4.4) * 18 * idle + pointerVector.width * 20 * attention
+            let pawWave = max(0, sin(time * 3.6 - 0.4)) * 7 * idle
 
-                RoundedRectangle(cornerRadius: 32)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                effectiveMood.color.opacity(isActive ? 0.94 : 0.70),
-                                tint.opacity(isActive ? 0.88 : 0.62),
-                                .black.opacity(0.74)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+            ZStack(alignment: .bottomTrailing) {
+                ZStack {
+                    mascotShadow(isPressed: isPressed, attention: attention)
+                        .offset(y: 58)
+
+                    tail(tailWave: tailWave)
+                        .offset(x: 34 + pointerVector.width * 8 * attention, y: 22 + bounce * 0.18)
+                        .rotationEffect(.degrees(isDragging ? Double(pointerVector.width * 18) : 0), anchor: .bottomLeading)
+
+                    body(breathe: breathe, attention: attention)
+                        .offset(x: pointerVector.width * 5 * attention, y: 18 + bounce)
+                        .scaleEffect(x: clickSquashX, y: clickSquashY, anchor: .bottom)
+
+                    paws(pawWave: pawWave, attention: attention)
+                        .offset(x: pointerVector.width * 4 * attention, y: 50 + bounce * 0.6 + (isPressed ? 6 : 0))
+
+                    head(
+                        time: time,
+                        blink: blink,
+                        attention: attention,
+                        headX: headX,
+                        headY: headY,
+                        earTwitch: earTwitch
                     )
-                    .frame(width: 96, height: 96)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 32)
-                            .stroke(.white.opacity(isActive ? 0.46 : 0.25), lineWidth: 1.5)
-                    )
-                    .shadow(color: effectiveMood.color.opacity(isActive ? 0.34 : 0.16), radius: isActive ? 22 : 12, x: 0, y: 8)
-
-                Image(systemName: isActive ? "terminal.fill" : "terminal")
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.96))
-                    .offset(x: pointerVector.width * 5, y: -pointerVector.height * 4)
-
-                if isPointerNear || isHovering || isActive {
-                    effectiveMood.symbol
-                        .font(.system(size: 12, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(width: 24, height: 24)
-                        .background(effectiveMood.color.opacity(0.92), in: Circle())
-                        .overlay(Circle().stroke(.white.opacity(0.65), lineWidth: 1))
-                        .offset(x: -36, y: -40)
-                        .transition(.opacity.combined(with: .scale(scale: 0.86)))
+                    .offset(x: headX, y: -15 + headY + bounce * 0.65 + (isPressed ? 6 : 0))
+                    .rotationEffect(.degrees(dragLean + sway * 0.35), anchor: .bottom)
+                    .scaleEffect(x: isPressed ? 1.08 : 1, y: isPressed ? 0.90 : 1, anchor: .bottom)
                 }
-            }
-            .frame(width: 146, height: 146)
-            .scaleEffect(isPressed ? 0.92 : (isHovering || isPointerNear ? 1.05 : 1.0))
-            .rotationEffect(.degrees(isDragging ? Double(pointerVector.width * 10) : Double(pointerVector.width * 3)))
-            .animation(.spring(response: 0.18, dampingFraction: 0.72), value: isPressed)
-            .animation(.spring(response: 0.24, dampingFraction: 0.70), value: isHovering)
-            .animation(.interactiveSpring(response: 0.16, dampingFraction: 0.78), value: pointerVector)
+                .frame(width: 146, height: 146)
+                .rotationEffect(.degrees(isDragging ? Double(pointerVector.width * 9) : sway * 0.25), anchor: .bottom)
+                .scaleEffect(isHovering || isPointerNear ? 1.04 : 1.0)
+                .animation(.spring(response: 0.20, dampingFraction: 0.70), value: isPressed)
+                .animation(.spring(response: 0.24, dampingFraction: 0.68), value: isHovering)
+                .animation(.interactiveSpring(response: 0.16, dampingFraction: 0.78), value: pointerVector)
 
-            if displayNumber > 0 {
-                Text("\(displayNumber)")
-                    .font(.system(size: 10, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(width: 18, height: 18)
-                    .background(effectiveMood.color, in: Circle())
-                    .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 1))
-                    .offset(x: -16, y: -18)
+                if displayNumber > 0 {
+                    Text("\(displayNumber)")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(width: 18, height: 18)
+                        .background(tint.opacity(0.95), in: Circle())
+                        .overlay(Circle().stroke(.white.opacity(0.82), lineWidth: 1))
+                        .offset(x: -18, y: -22)
+                }
             }
         }
     }
 
-    private var effectiveMood: TerminalMood {
-        isActive && mood == .idle ? .active : mood
+    private func blinkAmount(_ time: TimeInterval) -> CGFloat {
+        let cycle = time.truncatingRemainder(dividingBy: 3.4)
+        if cycle < 0.09 { return 1 }
+        if cycle < 0.16 { return 0.45 }
+        return isPressed ? 0.25 : 0
     }
 
-    private var launcherShadow: some View {
+    private func earTwitchAmount(_ time: TimeInterval) -> CGFloat {
+        let cycle = time.truncatingRemainder(dividingBy: 4.7)
+        guard cycle > 3.9 && cycle < 4.18 else { return 0 }
+        return sin((cycle - 3.9) / 0.28 * .pi) * 15
+    }
+
+    private func mascotShadow(isPressed: Bool, attention: CGFloat) -> some View {
+        Capsule()
+            .fill(.black.opacity(0.18))
+            .frame(width: isPressed ? 70 : 88 + attention * 10, height: isPressed ? 12 : 17)
+            .blur(radius: 7)
+    }
+
+    private func body(breathe: CGFloat, attention: CGFloat) -> some View {
         ZStack {
+            Ellipse()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color(red: 1.0, green: 0.88, blue: 0.73),
+                            Color(red: 0.84, green: 0.58, blue: 0.38)
+                        ],
+                        center: .topLeading,
+                        startRadius: 8,
+                        endRadius: 70
+                    )
+                )
+                .frame(width: 78, height: 68)
+
+            Ellipse()
+                .fill(Color(red: 1.0, green: 0.94, blue: 0.84).opacity(0.92))
+                .frame(width: 43, height: 48)
+                .offset(x: -3, y: 10)
+
+            Capsule()
+                .fill(tint.opacity(0.78))
+                .frame(width: 44, height: 7)
+                .offset(y: -22)
+                .shadow(color: tint.opacity(0.28), radius: 5, x: 0, y: 2)
+        }
+        .scaleEffect(x: 1 + attention * 0.03, y: breathe, anchor: .bottom)
+    }
+
+    private func head(
+        time: TimeInterval,
+        blink: CGFloat,
+        attention: CGFloat,
+        headX: CGFloat,
+        headY: CGFloat,
+        earTwitch: CGFloat
+    ) -> some View {
+        ZStack {
+            ears(earTwitch: earTwitch, attention: attention)
+                .offset(y: -41)
+
             Circle()
                 .fill(
                     RadialGradient(
                         colors: [
-                            effectiveMood.color.opacity(isActive ? 0.28 : 0.14),
-                            effectiveMood.color.opacity(0.04),
-                            .clear
+                            Color(red: 1.0, green: 0.89, blue: 0.74),
+                            Color(red: 0.86, green: 0.63, blue: 0.44)
                         ],
-                        center: .center,
+                        center: .topLeading,
                         startRadius: 8,
-                        endRadius: 74
+                        endRadius: 66
                     )
                 )
-                .frame(width: isHovering || isPointerNear ? 132 : 112, height: isHovering || isPointerNear ? 132 : 112)
-                .blur(radius: 6)
+                .frame(width: 84, height: 84)
+                .scaleEffect(x: 1.08, y: 0.98)
+                .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 5)
 
-            Capsule()
-                .fill(.black.opacity(isPressed ? 0.12 : 0.18))
-                .frame(width: isPressed ? 70 : 88, height: isPressed ? 12 : 16)
-                .blur(radius: 7)
-                .offset(y: 56)
+            faceStripes(attention: attention)
+
+            muzzle
+                .offset(y: 17)
+
+            eyes(blink: blink, attention: attention)
+                .offset(x: headX * 0.10, y: headY * 0.08 - 1)
+
+            noseAndMouth(attention: attention)
+                .offset(y: 19)
+
+            whiskers(attention: attention)
+                .offset(y: 17)
         }
-        .animation(.easeInOut(duration: 0.18), value: isHovering)
-        .animation(.easeInOut(duration: 0.18), value: isPointerNear)
-        .animation(.easeInOut(duration: 0.18), value: isActive)
+        .rotation3DEffect(.degrees(Double(pointerVector.width * 18 * attention)), axis: (x: 0, y: 1, z: 0))
+        .rotation3DEffect(.degrees(Double(-pointerVector.height * 12 * attention)), axis: (x: 1, y: 0, z: 0))
     }
 
+    private func ears(earTwitch: CGFloat, attention: CGFloat) -> some View {
+        ZStack {
+            CatEar()
+                .fill(Color(red: 0.78, green: 0.52, blue: 0.35))
+                .frame(width: 34, height: 42)
+                .overlay(
+                    CatEar()
+                        .fill(Color(red: 1.0, green: 0.50, blue: 0.48).opacity(0.86))
+                        .padding(8)
+                )
+                .rotationEffect(.degrees(-22 - earTwitch - attention * 8), anchor: .bottom)
+                .offset(x: -31, y: 4)
+
+            CatEar()
+                .fill(Color(red: 0.78, green: 0.52, blue: 0.35))
+                .frame(width: 34, height: 42)
+                .overlay(
+                    CatEar()
+                        .fill(Color(red: 1.0, green: 0.50, blue: 0.48).opacity(0.86))
+                        .padding(8)
+                )
+                .rotationEffect(.degrees(22 + earTwitch + attention * 8), anchor: .bottom)
+                .offset(x: 31, y: 4)
+        }
+    }
+
+    private func faceStripes(attention: CGFloat) -> some View {
+        ZStack {
+            ForEach(0..<3, id: \.self) { index in
+                Capsule()
+                    .fill(Color(red: 0.30, green: 0.18, blue: 0.11).opacity(0.60))
+                    .frame(width: 7, height: 25 - CGFloat(index * 3))
+                    .rotationEffect(.degrees(Double(index - 1) * 13))
+                    .offset(x: CGFloat(index - 1) * 13, y: -28 + attention * -2)
+            }
+
+            ForEach(0..<2, id: \.self) { index in
+                Capsule()
+                    .fill(Color(red: 0.30, green: 0.18, blue: 0.11).opacity(0.54))
+                    .frame(width: 24, height: 5)
+                    .rotationEffect(.degrees(index == 0 ? -18 : 18))
+                    .offset(x: -34, y: CGFloat(index) * 10 - 9)
+
+                Capsule()
+                    .fill(Color(red: 0.30, green: 0.18, blue: 0.11).opacity(0.54))
+                    .frame(width: 24, height: 5)
+                    .rotationEffect(.degrees(index == 0 ? 18 : -18))
+                    .offset(x: 34, y: CGFloat(index) * 10 - 9)
+            }
+        }
+    }
+
+    private var muzzle: some View {
+        HStack(spacing: -3) {
+            Circle()
+                .fill(Color(red: 1.0, green: 0.94, blue: 0.84))
+                .frame(width: 28, height: 24)
+            Circle()
+                .fill(Color(red: 1.0, green: 0.94, blue: 0.84))
+                .frame(width: 28, height: 24)
+        }
+    }
+
+    private func eyes(blink: CGFloat, attention: CGFloat) -> some View {
+        HStack(spacing: 18) {
+            catEye(blink: blink, attention: attention)
+            catEye(blink: blink, attention: attention)
+        }
+    }
+
+    private func catEye(blink: CGFloat, attention: CGFloat) -> some View {
+        ZStack {
+            Capsule()
+                .fill(.white)
+                .frame(width: 21 + attention * 5, height: max(3, 27 * (1 - blink)))
+
+            Circle()
+                .fill(Color(red: 0.53, green: 0.68, blue: 0.30))
+                .frame(width: 14 + attention * 2, height: max(2, 14 * (1 - blink)))
+                .offset(x: pointerVector.width * 4 * attention, y: -pointerVector.height * 3 * attention)
+
+            Circle()
+                .fill(.black.opacity(0.92))
+                .frame(width: 8 + attention * 2, height: max(2, 8 * (1 - blink)))
+                .offset(x: pointerVector.width * 5 * attention, y: -pointerVector.height * 4 * attention)
+
+            Circle()
+                .fill(.white.opacity(blink > 0.7 ? 0 : 0.9))
+                .frame(width: 4, height: 4)
+                .offset(x: 4 + pointerVector.width * 4 * attention, y: -7 - pointerVector.height * 3 * attention)
+        }
+    }
+
+    private func noseAndMouth(attention: CGFloat) -> some View {
+        VStack(spacing: 1) {
+            Circle()
+                .fill(Color(red: 1.0, green: 0.36, blue: 0.34))
+                .frame(width: 10, height: 8)
+                .scaleEffect(x: 1.22, y: 0.88)
+
+            HStack(spacing: 0) {
+                ArcSmile()
+                    .stroke(.black.opacity(0.58), lineWidth: 1.6)
+                    .frame(width: 11, height: isPressed ? 12 : 8 + attention * 4)
+                    .scaleEffect(x: -1, y: 1)
+                ArcSmile()
+                    .stroke(.black.opacity(0.58), lineWidth: 1.6)
+                    .frame(width: 11, height: isPressed ? 12 : 8 + attention * 4)
+            }
+        }
+    }
+
+    private func whiskers(attention: CGFloat) -> some View {
+        ZStack {
+            ForEach(0..<3, id: \.self) { index in
+                Capsule()
+                    .fill(.white.opacity(0.82))
+                    .frame(width: 31 + attention * 5, height: 1.4)
+                    .rotationEffect(.degrees(Double(index - 1) * 10 - 4))
+                    .offset(x: -39, y: CGFloat(index - 1) * 6)
+
+                Capsule()
+                    .fill(.white.opacity(0.82))
+                    .frame(width: 31 + attention * 5, height: 1.4)
+                    .rotationEffect(.degrees(Double(index - 1) * -10 + 4))
+                    .offset(x: 39, y: CGFloat(index - 1) * 6)
+            }
+        }
+    }
+
+    private func paws(pawWave: CGFloat, attention: CGFloat) -> some View {
+        HStack(spacing: 22) {
+            paw
+                .offset(y: -pawWave - attention * 5)
+                .rotationEffect(.degrees(-8 - pawWave * 0.8))
+            paw
+                .offset(y: pawWave * 0.35)
+                .rotationEffect(.degrees(8 + pawWave * 0.35))
+        }
+    }
+
+    private var paw: some View {
+        ZStack {
+            Circle()
+                .fill(Color(red: 1.0, green: 0.92, blue: 0.82))
+                .frame(width: 29, height: 25)
+            Circle()
+                .fill(Color(red: 1.0, green: 0.48, blue: 0.45).opacity(0.72))
+                .frame(width: 7, height: 6)
+                .offset(y: 5)
+        }
+        .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+    }
+
+    private func tail(tailWave: CGFloat) -> some View {
+        CatTail()
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.74, green: 0.45, blue: 0.28),
+                        Color(red: 0.98, green: 0.79, blue: 0.58)
+                    ],
+                    startPoint: .bottomLeading,
+                    endPoint: .topTrailing
+                ),
+                style: StrokeStyle(lineWidth: 17, lineCap: .round, lineJoin: .round)
+            )
+            .frame(width: 54, height: 76)
+            .rotationEffect(.degrees(tailWave), anchor: .bottomLeading)
+            .shadow(color: .black.opacity(0.10), radius: 4, x: 0, y: 2)
+    }
+}
+
+struct CatEar: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY), control: CGPoint(x: rect.minX + 2, y: rect.midY * 0.7))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY), control: CGPoint(x: rect.midX, y: rect.maxY - 8))
+        path.addQuadCurve(to: CGPoint(x: rect.midX, y: rect.minY), control: CGPoint(x: rect.maxX - 2, y: rect.midY * 0.7))
+        path.closeSubpath()
+        return path
+    }
+}
+
+struct CatTail: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + 10, y: rect.maxY - 8))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - 12, y: rect.minY + 12),
+            control1: CGPoint(x: rect.minX + 34, y: rect.maxY - 16),
+            control2: CGPoint(x: rect.maxX + 8, y: rect.midY + 10)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - 27, y: rect.minY + 27),
+            control1: CGPoint(x: rect.maxX - 30, y: rect.minY - 6),
+            control2: CGPoint(x: rect.maxX - 41, y: rect.minY + 12)
+        )
+        return path
+    }
+}
+
+struct ArcSmile: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY), control: CGPoint(x: rect.midX, y: rect.maxY))
+        return path
+    }
 }
 
 enum TerminalMood: Equatable {
