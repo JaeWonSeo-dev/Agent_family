@@ -667,10 +667,10 @@ struct Mascot3DSceneView: NSViewRepresentable {
 
             let camera = SCNCamera()
             camera.usesOrthographicProjection = true
-            camera.orthographicScale = 4.15
+            camera.orthographicScale = 3.75
             let cameraNode = SCNNode()
             cameraNode.camera = camera
-            cameraNode.position = SCNVector3(0, 0.18, 7)
+            cameraNode.position = SCNVector3(0, 0.02, 7)
             scene.rootNode.addChildNode(cameraNode)
 
             let ambient = SCNLight()
@@ -698,8 +698,44 @@ struct Mascot3DSceneView: NSViewRepresentable {
             moodLight.position = SCNVector3(2.4, 1.8, 3.2)
             scene.rootNode.addChildNode(moodLight)
 
+            buildAppIconBubble()
             buildCloud()
             buildCat()
+        }
+
+        private func buildAppIconBubble() {
+            let backMaterial = material(
+                diffuse: NSColor(calibratedRed: 0.49, green: 0.35, blue: 0.98, alpha: 0.72),
+                specular: NSColor.white.withAlphaComponent(0.62),
+                roughness: 0.24
+            )
+            let back = SCNNode(geometry: SCNPlane(width: 3.25, height: 3.25))
+            (back.geometry as? SCNPlane)?.cornerRadius = 0.42
+            back.geometry?.materials = [backMaterial]
+            back.position = SCNVector3(0, -0.10, -0.72)
+            root.addChildNode(back)
+
+            let rimMaterial = material(
+                diffuse: NSColor(calibratedRed: 0.79, green: 0.52, blue: 1.0, alpha: 0.86),
+                specular: NSColor.white.withAlphaComponent(0.75),
+                roughness: 0.18
+            )
+            let rim = SCNNode(geometry: SCNTorus(ringRadius: 1.72, pipeRadius: 0.045))
+            rim.geometry?.materials = [rimMaterial]
+            rim.position = SCNVector3(0, -0.10, -0.66)
+            rim.scale = SCNVector3(1.0, 0.86, 0.08)
+            root.addChildNode(rim)
+
+            let shelf = SCNNode(geometry: SCNCapsule(capRadius: 0.12, height: 2.35))
+            shelf.geometry?.materials = [material(
+                diffuse: NSColor(calibratedRed: 0.34, green: 0.20, blue: 0.84, alpha: 0.92),
+                specular: NSColor.white.withAlphaComponent(0.58),
+                roughness: 0.28
+            )]
+            shelf.position = SCNVector3(0, -1.13, -0.40)
+            shelf.eulerAngles.z = .pi / 2
+            shelf.scale = SCNVector3(1.0, 0.62, 0.30)
+            root.addChildNode(shelf)
         }
 
         private func buildCloud() {
@@ -709,34 +745,34 @@ struct Mascot3DSceneView: NSViewRepresentable {
                 roughness: 0.72
             )
             let positions: [(Float, Float, Float, Float)] = [
-                (-0.82, -1.25, 0.46, 0.72),
-                (-0.34, -1.05, 0.50, 0.72),
-                (0.22, -1.02, 0.56, 0.76),
-                (0.78, -1.18, 0.47, 0.70),
-                (0.00, -1.36, 0.72, 0.42)
+                (-0.78, -1.18, 0.38, 0.58),
+                (-0.30, -1.03, 0.42, 0.58),
+                (0.22, -1.02, 0.45, 0.62),
+                (0.73, -1.15, 0.38, 0.56),
+                (0.00, -1.32, 0.58, 0.34)
             ]
             for item in positions {
                 let node = SCNNode(geometry: SCNSphere(radius: CGFloat(item.2)))
                 node.geometry?.materials = [cloudMaterial]
                 node.position = SCNVector3(item.0, item.1, 0)
-                node.scale = SCNVector3(1.15, item.3, 0.78)
+                node.scale = SCNVector3(1.22, item.3, 0.58)
                 root.addChildNode(node)
             }
         }
 
         private func buildCat() {
             let fur = material(
-                diffuse: NSColor(calibratedRed: 0.91, green: 0.70, blue: 0.52, alpha: 1),
+                diffuse: NSColor(calibratedRed: 0.82, green: 0.62, blue: 0.45, alpha: 1),
                 specular: NSColor.white.withAlphaComponent(0.34),
                 roughness: 0.58
             )
             let cream = material(
-                diffuse: NSColor(calibratedRed: 1.0, green: 0.89, blue: 0.78, alpha: 1),
+                diffuse: NSColor(calibratedRed: 1.0, green: 0.91, blue: 0.80, alpha: 1),
                 specular: NSColor.white.withAlphaComponent(0.30),
                 roughness: 0.62
             )
             let stripe = material(
-                diffuse: NSColor(calibratedRed: 0.33, green: 0.20, blue: 0.14, alpha: 1),
+                diffuse: NSColor(calibratedRed: 0.22, green: 0.13, blue: 0.09, alpha: 1),
                 specular: NSColor.white.withAlphaComponent(0.12),
                 roughness: 0.72
             )
@@ -753,75 +789,79 @@ struct Mascot3DSceneView: NSViewRepresentable {
             )
             let black = material(diffuse: .black, specular: .white, roughness: 0.22)
 
-            body.geometry = SCNSphere(radius: 0.72)
+            body.geometry = SCNSphere(radius: 0.66)
             body.geometry?.materials = [fur]
-            body.position = SCNVector3(0, -0.38, 0)
-            body.scale = SCNVector3(0.94, 1.04, 0.72)
+            body.position = SCNVector3(0.20, -0.44, -0.02)
+            body.scale = SCNVector3(0.86, 0.98, 0.64)
             root.addChildNode(body)
 
             let belly = SCNNode(geometry: SCNSphere(radius: 0.48))
             belly.geometry?.materials = [cream]
-            belly.position = SCNVector3(0, -0.42, 0.43)
-            belly.scale = SCNVector3(0.82, 1.12, 0.18)
+            belly.position = SCNVector3(-0.06, -0.38, 0.40)
+            belly.scale = SCNVector3(0.76, 1.05, 0.16)
             body.addChildNode(belly)
 
-            head.geometry = SCNSphere(radius: 0.82)
+            head.geometry = SCNSphere(radius: 0.90)
             head.geometry?.materials = [fur]
-            head.position = SCNVector3(0, 0.70, 0.05)
-            head.scale = SCNVector3(1.04, 0.94, 0.82)
+            head.position = SCNVector3(0.08, 0.58, 0.06)
+            head.scale = SCNVector3(1.12, 1.00, 0.76)
             root.addChildNode(head)
 
             let muzzle = SCNNode(geometry: SCNSphere(radius: 0.33))
             muzzle.geometry?.materials = [cream]
-            muzzle.position = SCNVector3(0, -0.16, 0.61)
-            muzzle.scale = SCNVector3(1.25, 0.68, 0.42)
+            muzzle.position = SCNVector3(0.00, -0.20, 0.68)
+            muzzle.scale = SCNVector3(1.34, 0.70, 0.36)
             head.addChildNode(muzzle)
 
-            leftEar.geometry = SCNCone(topRadius: 0, bottomRadius: 0.28, height: 0.68)
-            rightEar.geometry = SCNCone(topRadius: 0, bottomRadius: 0.28, height: 0.68)
+            leftEar.geometry = SCNCone(topRadius: 0, bottomRadius: 0.32, height: 0.78)
+            rightEar.geometry = SCNCone(topRadius: 0, bottomRadius: 0.32, height: 0.78)
             leftEar.geometry?.materials = [fur]
             rightEar.geometry?.materials = [fur]
-            leftEar.position = SCNVector3(-0.48, 0.62, 0.02)
-            rightEar.position = SCNVector3(0.48, 0.62, 0.02)
-            leftEar.eulerAngles = SCNVector3(0, 0, -0.42)
-            rightEar.eulerAngles = SCNVector3(0, 0, 0.42)
+            leftEar.position = SCNVector3(-0.56, 0.62, 0.00)
+            rightEar.position = SCNVector3(0.56, 0.62, 0.00)
+            leftEar.eulerAngles = SCNVector3(0, 0, -0.36)
+            rightEar.eulerAngles = SCNVector3(0, 0, 0.36)
             head.addChildNode(leftEar)
             head.addChildNode(rightEar)
 
             addInnerEar(to: leftEar, material: pink)
             addInnerEar(to: rightEar, material: pink)
 
-            for x in [-0.22, 0.0, 0.22] {
-                let mark = SCNNode(geometry: SCNCapsule(capRadius: 0.035, height: 0.34))
+            for x in [-0.25, -0.08, 0.10, 0.27] {
+                let mark = SCNNode(geometry: SCNCapsule(capRadius: 0.040, height: 0.38))
                 mark.geometry?.materials = [stripe]
-                mark.position = SCNVector3(Float(x), 0.44, 0.68)
+                mark.position = SCNVector3(Float(x), 0.45, 0.70)
                 mark.eulerAngles.x = .pi / 2
-                mark.scale = SCNVector3(0.75, 1, 1)
+                mark.eulerAngles.z = CGFloat(x) * -0.55
+                mark.scale = SCNVector3(0.72, 1, 1)
                 head.addChildNode(mark)
             }
+
+            addFaceStripes(material: stripe)
 
             addEye(isLeft: true, white: white, green: green, black: black)
             addEye(isLeft: false, white: white, green: green, black: black)
 
             let nose = SCNNode(geometry: SCNSphere(radius: 0.085))
             nose.geometry?.materials = [pink]
-            nose.position = SCNVector3(0, -0.08, 0.82)
-            nose.scale = SCNVector3(1.20, 0.72, 0.78)
+            nose.position = SCNVector3(0, -0.10, 0.89)
+            nose.scale = SCNVector3(1.30, 0.76, 0.70)
             head.addChildNode(nose)
 
             mouth.geometry = SCNTorus(ringRadius: 0.115, pipeRadius: 0.012)
             mouth.geometry?.materials = [black]
-            mouth.position = SCNVector3(0, -0.22, 0.80)
-            mouth.scale = SCNVector3(1.0, 0.45, 0.18)
+            mouth.position = SCNVector3(0, -0.27, 0.86)
+            mouth.scale = SCNVector3(0.86, 0.50, 0.16)
             head.addChildNode(mouth)
 
             addWhiskers(material: cream)
             addPaws(material: cream, pink: pink)
+            addRaisedPaw(material: cream, pink: pink, stripe: stripe)
 
             tail.geometry = SCNCapsule(capRadius: 0.11, height: 1.08)
             tail.geometry?.materials = [fur]
-            tail.position = SCNVector3(-0.72, -0.54, -0.08)
-            tail.eulerAngles = SCNVector3(0.2, 0.15, 0.58)
+            tail.position = SCNVector3(0.78, -0.72, -0.12)
+            tail.eulerAngles = SCNVector3(0.16, -0.20, -0.82)
             root.addChildNode(tail)
         }
 
@@ -836,29 +876,42 @@ struct Mascot3DSceneView: NSViewRepresentable {
         private func addEye(isLeft: Bool, white: SCNMaterial, green: SCNMaterial, black: SCNMaterial) {
             let sign: Float = isLeft ? -1 : 1
             let eye = isLeft ? leftEye : rightEye
-            eye.geometry = SCNSphere(radius: 0.185)
+            eye.geometry = SCNSphere(radius: 0.245)
             eye.geometry?.materials = [white]
-            eye.position = SCNVector3(sign * 0.28, 0.09, 0.70)
-            eye.scale = SCNVector3(0.92, 1.18, 0.34)
+            eye.position = SCNVector3(sign * 0.34, 0.06, 0.77)
+            eye.scale = SCNVector3(0.90, 1.18, 0.28)
             head.addChildNode(eye)
 
-            let iris = SCNNode(geometry: SCNSphere(radius: 0.116))
+            let iris = SCNNode(geometry: SCNSphere(radius: 0.155))
             iris.geometry?.materials = [green]
-            iris.position = SCNVector3(0, 0, 0.092)
-            iris.scale = SCNVector3(0.94, 1.08, 0.20)
+            iris.position = SCNVector3(0, 0, 0.103)
+            iris.scale = SCNVector3(0.94, 1.08, 0.16)
             eye.addChildNode(iris)
 
             let pupil = isLeft ? leftPupil : rightPupil
-            pupil.geometry = SCNSphere(radius: 0.070)
+            pupil.geometry = SCNSphere(radius: 0.094)
             pupil.geometry?.materials = [black]
-            pupil.position = SCNVector3(sign * 0.18, 0.11, 0.83)
-            pupil.scale = SCNVector3(0.92, 1.18, 0.20)
+            pupil.position = SCNVector3(sign * 0.34, 0.06, 0.91)
+            pupil.scale = SCNVector3(0.90, 1.22, 0.16)
             head.addChildNode(pupil)
 
-            let shine = SCNNode(geometry: SCNSphere(radius: 0.028))
+            let shine = SCNNode(geometry: SCNSphere(radius: 0.040))
             shine.geometry?.materials = [material(diffuse: .white, specular: .white, roughness: 0.18)]
-            shine.position = SCNVector3(sign * 0.22, 0.18, 0.88)
+            shine.position = SCNVector3(sign * 0.27, 0.17, 0.97)
             head.addChildNode(shine)
+        }
+
+        private func addFaceStripes(material: SCNMaterial) {
+            for side: Float in [-1, 1] {
+                for index in 0..<2 {
+                    let stripeNode = SCNNode(geometry: SCNCapsule(capRadius: 0.026, height: 0.46))
+                    stripeNode.geometry?.materials = [material]
+                    stripeNode.position = SCNVector3(side * 0.60, Float(index) * -0.13 + 0.03, 0.66)
+                    stripeNode.eulerAngles = SCNVector3(0.10, side * 0.18, side * (1.06 + Float(index) * 0.16))
+                    stripeNode.scale = SCNVector3(1.0, 0.82, 1.0)
+                    head.addChildNode(stripeNode)
+                }
+            }
         }
 
         private func addWhiskers(material: SCNMaterial) {
@@ -877,11 +930,11 @@ struct Mascot3DSceneView: NSViewRepresentable {
         }
 
         private func addPaws(material: SCNMaterial, pink: SCNMaterial) {
-            for x: Float in [-0.34, 0.34] {
+            for x: Float in [-0.12, 0.47] {
                 let paw = SCNNode(geometry: SCNSphere(radius: 0.22))
                 paw.geometry?.materials = [material]
-                paw.position = SCNVector3(x, -0.82, 0.50)
-                paw.scale = SCNVector3(1.02, 0.80, 0.55)
+                paw.position = SCNVector3(x, -0.96, 0.55)
+                paw.scale = SCNVector3(1.08, 0.76, 0.48)
                 root.addChildNode(paw)
 
                 let pad = SCNNode(geometry: SCNSphere(radius: 0.065))
@@ -889,6 +942,42 @@ struct Mascot3DSceneView: NSViewRepresentable {
                 pad.position = SCNVector3(0, -0.03, 0.16)
                 pad.scale = SCNVector3(1.15, 0.76, 0.30)
                 paw.addChildNode(pad)
+            }
+        }
+
+        private func addRaisedPaw(material: SCNMaterial, pink: SCNMaterial, stripe: SCNMaterial) {
+            let arm = SCNNode(geometry: SCNCapsule(capRadius: 0.13, height: 0.74))
+            arm.geometry?.materials = [material]
+            arm.position = SCNVector3(-0.80, -0.24, 0.36)
+            arm.eulerAngles = SCNVector3(0.10, 0.0, -0.74)
+            root.addChildNode(arm)
+
+            let paw = SCNNode(geometry: SCNSphere(radius: 0.25))
+            paw.geometry?.materials = [material]
+            paw.position = SCNVector3(-1.08, 0.12, 0.62)
+            paw.scale = SCNVector3(0.94, 1.08, 0.48)
+            root.addChildNode(paw)
+
+            let centerPad = SCNNode(geometry: SCNSphere(radius: 0.080))
+            centerPad.geometry?.materials = [pink]
+            centerPad.position = SCNVector3(0.00, -0.03, 0.18)
+            centerPad.scale = SCNVector3(1.20, 0.86, 0.28)
+            paw.addChildNode(centerPad)
+
+            for (x, y) in [(-0.09, 0.08), (0.00, 0.12), (0.09, 0.08)] {
+                let toe = SCNNode(geometry: SCNSphere(radius: 0.043))
+                toe.geometry?.materials = [pink]
+                toe.position = SCNVector3(Float(x), Float(y), 0.18)
+                toe.scale = SCNVector3(1.0, 0.80, 0.26)
+                paw.addChildNode(toe)
+            }
+
+            for offset: Float in [-0.13, 0.03] {
+                let band = SCNNode(geometry: SCNCapsule(capRadius: 0.020, height: 0.30))
+                band.geometry?.materials = [stripe]
+                band.position = SCNVector3(-0.76 + offset, -0.34 + offset * 0.6, 0.52)
+                band.eulerAngles = SCNVector3(0.10, 0.0, -0.74)
+                root.addChildNode(band)
             }
         }
 
