@@ -104,7 +104,13 @@ private extension AppDelegate {
                 isAwake: true,
                 isBlinking: false,
                 isPointerNear: false,
-                pointerVector: .zero
+                pointerVector: .zero,
+                isHovering: false,
+                isPressed: false,
+                isDragging: false,
+                isTerminalActive: false,
+                mood: .idle,
+                dragBounce: false
             )
                 .frame(width: 146, height: 158)
                 .contextMenu {
@@ -140,7 +146,7 @@ private extension AppDelegate {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
         window.isReleasedWhenClosed = false
         window.contentView = hostingView
         return window
@@ -328,7 +334,13 @@ struct FloatingTerminalOverlay: View {
             isAwake: true,
             isBlinking: false,
             isPointerNear: false,
-            pointerVector: .zero
+            pointerVector: .zero,
+            isHovering: false,
+            isPressed: false,
+            isDragging: false,
+            isTerminalActive: false,
+            mood: .idle,
+            dragBounce: false
         )
             .help("감지된 터미널 없음 · 우클릭으로 새로고침")
     }
@@ -346,8 +358,15 @@ struct FloatingTerminalCat: View {
     @State private var livePhase = false
     @State private var blinkPhase = false
     @State private var windowFrameProvider: (() -> CGRect)?
+    @State private var windowProvider: (() -> NSWindow?)?
     @State private var pointerVector = CGSize.zero
     @State private var isPointerNear = false
+    @State private var isHovering = false
+    @State private var isPressed = false
+    @State private var isDragging = false
+    @State private var dragStartFrame: CGRect?
+    @State private var dragBounce = false
+    @State private var isTerminalActive = false
     private let pointerTimer = Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -364,7 +383,13 @@ struct FloatingTerminalCat: View {
                 isAwake: livePhase,
                 isBlinking: blinkPhase,
                 isPointerNear: isPointerNear,
-                pointerVector: pointerVector
+                pointerVector: pointerVector,
+                isHovering: isHovering,
+                isPressed: isPressed,
+                isDragging: isDragging,
+                isTerminalActive: isTerminalActive,
+                mood: terminal.mood,
+                dragBounce: dragBounce
             )
                 .offset(y: floatPhase ? -4 : 4)
                 .animation(
@@ -373,10 +398,17 @@ struct FloatingTerminalCat: View {
                     value: floatPhase
                 )
                 .onTapGesture(count: 2, perform: onSolo)
-                .onTapGesture(perform: onActivate)
+                .onTapGesture {
+                    pressAndActivate()
+                }
         }
         .frame(width: 146, height: 158)
-        .background(WindowFrameReader(frameProvider: $windowFrameProvider))
+        .contentShape(Rectangle())
+        .background(WindowFrameReader(frameProvider: $windowFrameProvider, windowProvider: $windowProvider))
+        .onHover { hovering in
+            isHovering = hovering
+        }
+        .simultaneousGesture(dragGesture)
         .onAppear {
             livePhase = true
             scheduleBlink()
@@ -411,6 +443,7 @@ struct FloatingTerminalCat: View {
         let windowFrame = windowFrameProvider?() ?? .zero
         guard !windowFrame.isEmpty else { return }
 
+        isTerminalActive = NSWorkspace.shared.frontmostApplication?.processIdentifier == terminal.processID
         let mouse = NSEvent.mouseLocation
         let center = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
         let dx = mouse.x - center.x
@@ -422,16 +455,77 @@ struct FloatingTerminalCat: View {
         isPointerNear = strength > 0.12
         pointerVector = CGSize(width: dx / distance * strength, height: dy / distance * strength)
     }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                if dragStartFrame == nil {
+                    dragStartFrame = windowFrameProvider?() ?? .zero
+                }
+                guard let startFrame = dragStartFrame, let window = windowProvider?() else { return }
+
+                isDragging = true
+                isPressed = true
+                let newOrigin = CGPoint(
+                    x: startFrame.origin.x + value.translation.width,
+                    y: startFrame.origin.y - value.translation.height
+                )
+                window.setFrameOrigin(clampedWindowOrigin(newOrigin, size: startFrame.size))
+            }
+            .onEnded { value in
+                let distance = hypot(value.translation.width, value.translation.height)
+                if distance < 5 {
+                    pressAndActivate()
+                }
+
+                isDragging = false
+                isPressed = false
+                dragStartFrame = nil
+                triggerDragBounce()
+            }
+    }
+
+    private func clampedWindowOrigin(_ origin: CGPoint, size: CGSize) -> CGPoint {
+        let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(CGRect(origin: origin, size: size)) })
+            ?? NSScreen.main
+        guard let visibleFrame = screen?.visibleFrame else { return origin }
+
+        return CGPoint(
+            x: min(max(origin.x, visibleFrame.minX), visibleFrame.maxX - size.width),
+            y: min(max(origin.y, visibleFrame.minY), visibleFrame.maxY - size.height)
+        )
+    }
+
+    private func pressAndActivate() {
+        isPressed = true
+        onActivate()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 130_000_000)
+            isPressed = false
+        }
+    }
+
+    private func triggerDragBounce() {
+        dragBounce = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            dragBounce = false
+        }
+    }
 }
 
 struct WindowFrameReader: NSViewRepresentable {
     @Binding var frameProvider: (() -> CGRect)?
+    @Binding var windowProvider: (() -> NSWindow?)?
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.async {
             frameProvider = { [weak view] in
                 view?.window?.frame ?? .zero
+            }
+            windowProvider = { [weak view] in
+                view?.window
             }
         }
         return view
@@ -441,6 +535,9 @@ struct WindowFrameReader: NSViewRepresentable {
         DispatchQueue.main.async {
             frameProvider = { [weak nsView] in
                 nsView?.window?.frame ?? .zero
+            }
+            windowProvider = { [weak nsView] in
+                nsView?.window
             }
         }
     }
@@ -492,10 +589,18 @@ struct Plush3DCatIcon: View {
     let isBlinking: Bool
     let isPointerNear: Bool
     let pointerVector: CGSize
+    let isHovering: Bool
+    let isPressed: Bool
+    let isDragging: Bool
+    let isTerminalActive: Bool
+    let mood: TerminalMood
+    let dragBounce: Bool
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             ZStack {
+                mascotAura
+
                 if let catImage = isPointerNear ? CatIconAsset.focusImage : CatIconAsset.idleImage {
                     Image(nsImage: catImage)
                         .resizable()
@@ -503,18 +608,19 @@ struct Plush3DCatIcon: View {
                         .scaledToFit()
                         .frame(width: 144, height: 144)
                         .offset(
-                            x: pointerVector.width * 8,
-                            y: -pointerVector.height * 7
+                            x: pointerVector.width * (isDragging ? 16 : 9),
+                            y: -pointerVector.height * (isDragging ? 13 : 8) + (isPressed ? 7 : 0)
                         )
                         .scaleEffect(
-                            x: isAwake ? 1.018 : 0.992,
-                            y: isAwake ? 0.992 : 1.018,
+                            x: mascotScaleX,
+                            y: mascotScaleY,
                             anchor: .bottom
                         )
                         .rotationEffect(
-                            .degrees(Double(pointerVector.width * 8) + (isAwake ? 0.8 : -0.8)),
+                            .degrees(Double(pointerVector.width * 10) + idleTilt),
                             anchor: .bottom
                         )
+                        .shadow(color: effectiveMood.color.opacity(isTerminalActive ? 0.38 : 0.18), radius: isTerminalActive ? 18 : 10, x: 0, y: 8)
                         .animation(
                             .easeInOut(duration: 2.6 + Double(displayNumber % 4) * 0.13)
                                 .repeatForever(autoreverses: true),
@@ -526,28 +632,108 @@ struct Plush3DCatIcon: View {
                     vectorFallbackCat
                 }
 
+                if isPointerNear || isHovering || isTerminalActive {
+                    pointerFocusGlint
+                }
+
                 Image(systemName: "terminal.fill")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white.opacity(0.94))
                     .frame(width: 20, height: 20)
-                    .background(tint.opacity(0.86), in: Circle())
+                    .background(effectiveMood.color.opacity(0.92), in: Circle())
                     .overlay(Circle().stroke(.white.opacity(0.45), lineWidth: 1))
-                    .offset(x: 44, y: 55)
+                    .scaleEffect(isTerminalActive ? 1.12 : 1.0)
+                    .offset(x: 44, y: 55 + (isPressed ? 3 : 0))
             }
             .frame(width: 146, height: 146)
-            .shadow(color: tint.opacity(isSelected ? 0.28 : 0.14), radius: isSelected ? 18 : 10, x: 0, y: 8)
-            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 8)
+            .shadow(color: effectiveMood.color.opacity(isSelected ? 0.24 : 0.10), radius: isSelected ? 20 : 10, x: 0, y: 8)
+            .shadow(color: .black.opacity(isPressed ? 0.10 : 0.18), radius: isPressed ? 5 : 10, x: 0, y: isPressed ? 3 : 8)
+            .offset(y: dragBounce ? -5 : 0)
+            .animation(.spring(response: 0.26, dampingFraction: 0.48), value: dragBounce)
+            .animation(.spring(response: 0.18, dampingFraction: 0.72), value: isPressed)
 
             if displayNumber > 0 {
                 Text("\(displayNumber)")
                     .font(.system(size: 10, weight: .black, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(width: 18, height: 18)
-                    .background(tint, in: Circle())
+                    .background(effectiveMood.color, in: Circle())
                     .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 1))
                     .offset(x: -2, y: -6)
             }
         }
+    }
+
+    private var mascotScaleX: CGFloat {
+        if isPressed { return 1.08 }
+        if isDragging { return 1.04 }
+        if isHovering || isPointerNear { return 1.035 }
+        return isAwake ? 1.018 : 0.992
+    }
+
+    private var mascotScaleY: CGFloat {
+        if isPressed { return 0.90 }
+        if isDragging { return 0.96 }
+        if isHovering || isPointerNear { return 1.015 }
+        return isAwake ? 0.992 : 1.018
+    }
+
+    private var idleTilt: Double {
+        if isPressed { return 0 }
+        if isDragging { return Double(pointerVector.width * 12) }
+        return isAwake ? 0.8 : -0.8
+    }
+
+    private var effectiveMood: TerminalMood {
+        isTerminalActive && mood == .idle ? .active : mood
+    }
+
+    private var mascotAura: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            effectiveMood.color.opacity(isTerminalActive ? 0.30 : 0.16),
+                            effectiveMood.color.opacity(0.04),
+                            .clear
+                        ],
+                        center: .center,
+                        startRadius: 8,
+                        endRadius: 74
+                    )
+                )
+                .frame(width: isHovering || isPointerNear ? 136 : 118, height: isHovering || isPointerNear ? 136 : 118)
+                .blur(radius: 6)
+
+            Capsule()
+                .fill(.black.opacity(isPressed ? 0.12 : 0.18))
+                .frame(width: isPressed ? 82 : 96, height: isPressed ? 14 : 18)
+                .blur(radius: 7)
+                .offset(y: 66)
+        }
+        .animation(.easeInOut(duration: 0.18), value: isHovering)
+        .animation(.easeInOut(duration: 0.18), value: isPointerNear)
+        .animation(.easeInOut(duration: 0.18), value: isTerminalActive)
+    }
+
+    private var pointerFocusGlint: some View {
+        ZStack {
+            Circle()
+                .fill(.white.opacity(isTerminalActive ? 0.75 : 0.55))
+                .frame(width: 6, height: 6)
+                .offset(x: 26 + pointerVector.width * 6, y: -23 - pointerVector.height * 5)
+
+            effectiveMood.symbol
+                .font(.system(size: 12, weight: .black, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(effectiveMood.color.opacity(0.88), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.70), lineWidth: 1))
+                .offset(x: -45, y: -50)
+                .scaleEffect(isTerminalActive ? 1.08 : 1.0)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.88)))
     }
 
     private var vectorFallbackCat: some View {
@@ -901,6 +1087,69 @@ struct CatEar: Shape {
     }
 }
 
+enum TerminalMood: Equatable {
+    case idle
+    case active
+    case running
+    case success
+    case error
+
+    static func inferred(from title: String) -> TerminalMood {
+        let lowered = title.lowercased()
+        if lowered.contains("error")
+            || lowered.contains("failed")
+            || lowered.contains("exception")
+            || lowered.contains("panic") {
+            return .error
+        }
+        if lowered.contains("success")
+            || lowered.contains("passed")
+            || lowered.contains("complete")
+            || lowered.contains("done") {
+            return .success
+        }
+        if lowered.contains("running")
+            || lowered.contains("building")
+            || lowered.contains("installing")
+            || lowered.contains("watch")
+            || lowered.contains("npm")
+            || lowered.contains("swift build") {
+            return .running
+        }
+        return .idle
+    }
+
+    var color: Color {
+        switch self {
+        case .idle:
+            return .pink
+        case .active:
+            return .cyan
+        case .running:
+            return .orange
+        case .success:
+            return .green
+        case .error:
+            return .red
+        }
+    }
+
+    var symbol: Image {
+        switch self {
+        case .idle:
+            return Image(systemName: "moon.zzz.fill")
+        case .active:
+            return Image(systemName: "eye.fill")
+        case .running:
+            return Image(systemName: "bolt.fill")
+        case .success:
+            return Image(systemName: "checkmark")
+        case .error:
+            return Image(systemName: "exclamationmark")
+        }
+    }
+}
+
 struct TerminalWindow: Identifiable, Equatable {
     let appName: String
     let bundleIdentifier: String
@@ -920,6 +1169,10 @@ struct TerminalWindow: Identifiable, Equatable {
 
     var tint: Color {
         bundleIdentifier.contains("iterm") ? .purple : .green
+    }
+
+    var mood: TerminalMood {
+        TerminalMood.inferred(from: title)
     }
 
     var shortTitle: String {
