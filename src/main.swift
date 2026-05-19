@@ -612,9 +612,10 @@ struct Mascot3DSceneView: NSViewRepresentable {
         )
     }
 
-    final class Coordinator {
+        final class Coordinator {
         let scene = SCNScene()
         private let root = SCNNode()
+        private let modelRoot = SCNNode()
         private let body = SCNNode()
         private let head = SCNNode()
         private let leftEar = SCNNode()
@@ -627,6 +628,10 @@ struct Mascot3DSceneView: NSViewRepresentable {
         private let mouth = SCNNode()
         private let leftWhiskers = SCNNode()
         private let rightWhiskers = SCNNode()
+        private let leftFoot = SCNNode()
+        private let rightFoot = SCNNode()
+        private let raisedArm = SCNNode()
+        private let raisedPaw = SCNNode()
         private let moodLight = SCNNode()
         private var lastMood: TerminalMood = .idle
 
@@ -653,17 +658,23 @@ struct Mascot3DSceneView: NSViewRepresentable {
             let dragTilt: CGFloat = isDragging ? px * 0.28 : 0
             let idleWeight = characterState.idleBlend
             let attentionWeight = characterState.attentionBlend
+            let time = CGFloat(Date().timeIntervalSinceReferenceDate)
+            let idleHeadX = sin(time * 3.8) * 0.055 * idleWeight
+            let idleHeadY = cos(time * 2.7) * 0.035 * idleWeight
+            let idleHeadZ = sin(time * 2.2) * 0.045 * idleWeight
+            let idleBob = sin(time * 4.1) * 0.030 * idleWeight
 
             SCNTransaction.begin()
             SCNTransaction.animationDuration = 0.18
             root.scale = SCNVector3(pressScaleX, pressScaleY, 1.0)
             root.eulerAngles.z = dragTilt
+            modelRoot.isPaused = characterState.isAttentive
             head.eulerAngles = SCNVector3(
-                (-py * 0.28 * attentionWeight) + (0.035 * idleWeight),
-                px * 0.42 * attentionWeight,
-                (-px * 0.12 * attentionWeight) + (0.018 * idleWeight)
+                (-py * 0.28 * attentionWeight) + idleHeadX,
+                (px * 0.42 * attentionWeight) + idleHeadY,
+                (-px * 0.12 * attentionWeight) + idleHeadZ
             )
-            head.position.y = 0.58 + CGFloat(attentionWeight) * 0.16
+            head.position.y = 0.58 + CGFloat(attentionWeight) * 0.16 + idleBob
             leftPupil.position.x = -0.18 + px * 0.045
             leftPupil.position.y = 0.11 + py * 0.035
             rightPupil.position.x = 0.18 + px * 0.045
@@ -685,6 +696,7 @@ struct Mascot3DSceneView: NSViewRepresentable {
         private func buildScene() {
             scene.background.contents = NSColor.clear
             scene.rootNode.addChildNode(root)
+            root.addChildNode(modelRoot)
 
             let camera = SCNCamera()
             camera.usesOrthographicProjection = true
@@ -734,7 +746,7 @@ struct Mascot3DSceneView: NSViewRepresentable {
             (back.geometry as? SCNPlane)?.cornerRadius = 0.42
             back.geometry?.materials = [backMaterial]
             back.position = SCNVector3(0, -0.10, -0.72)
-            root.addChildNode(back)
+            modelRoot.addChildNode(back)
 
             let rimMaterial = material(
                 diffuse: NSColor(calibratedRed: 0.79, green: 0.52, blue: 1.0, alpha: 0.86),
@@ -745,7 +757,7 @@ struct Mascot3DSceneView: NSViewRepresentable {
             rim.geometry?.materials = [rimMaterial]
             rim.position = SCNVector3(0, -0.10, -0.66)
             rim.scale = SCNVector3(1.0, 0.86, 0.08)
-            root.addChildNode(rim)
+            modelRoot.addChildNode(rim)
 
             let shelf = SCNNode(geometry: SCNCapsule(capRadius: 0.12, height: 2.35))
             shelf.geometry?.materials = [material(
@@ -756,7 +768,7 @@ struct Mascot3DSceneView: NSViewRepresentable {
             shelf.position = SCNVector3(0, -1.13, -0.40)
             shelf.eulerAngles.z = .pi / 2
             shelf.scale = SCNVector3(1.0, 0.62, 0.30)
-            root.addChildNode(shelf)
+            modelRoot.addChildNode(shelf)
         }
 
         private func buildCloud() {
@@ -777,7 +789,7 @@ struct Mascot3DSceneView: NSViewRepresentable {
                 node.geometry?.materials = [cloudMaterial]
                 node.position = SCNVector3(item.0, item.1, 0)
                 node.scale = SCNVector3(1.22, item.3, 0.58)
-                root.addChildNode(node)
+                modelRoot.addChildNode(node)
             }
         }
 
@@ -814,7 +826,7 @@ struct Mascot3DSceneView: NSViewRepresentable {
             body.geometry?.materials = [fur]
             body.position = SCNVector3(0.20, -0.44, -0.02)
             body.scale = SCNVector3(0.86, 0.98, 0.64)
-            root.addChildNode(body)
+            modelRoot.addChildNode(body)
 
             let belly = SCNNode(geometry: SCNSphere(radius: 0.48))
             belly.geometry?.materials = [cream]
@@ -826,7 +838,7 @@ struct Mascot3DSceneView: NSViewRepresentable {
             head.geometry?.materials = [fur]
             head.position = SCNVector3(0.08, 0.58, 0.06)
             head.scale = SCNVector3(1.12, 1.00, 0.76)
-            root.addChildNode(head)
+            modelRoot.addChildNode(head)
 
             let muzzle = SCNNode(geometry: SCNSphere(radius: 0.33))
             muzzle.geometry?.materials = [cream]
@@ -883,7 +895,7 @@ struct Mascot3DSceneView: NSViewRepresentable {
             tail.geometry?.materials = [fur]
             tail.position = SCNVector3(0.78, -0.72, -0.12)
             tail.eulerAngles = SCNVector3(0.16, -0.20, -0.82)
-            root.addChildNode(tail)
+            modelRoot.addChildNode(tail)
         }
 
         private func addInnerEar(to ear: SCNNode, material: SCNMaterial) {
@@ -951,12 +963,13 @@ struct Mascot3DSceneView: NSViewRepresentable {
         }
 
         private func addPaws(material: SCNMaterial, pink: SCNMaterial) {
-            for x: Float in [-0.12, 0.47] {
-                let paw = SCNNode(geometry: SCNSphere(radius: 0.22))
+            for (index, x) in [Float(-0.12), Float(0.47)].enumerated() {
+                let paw = index == 0 ? leftFoot : rightFoot
+                paw.geometry = SCNSphere(radius: 0.22)
                 paw.geometry?.materials = [material]
                 paw.position = SCNVector3(x, -0.96, 0.55)
                 paw.scale = SCNVector3(1.08, 0.76, 0.48)
-                root.addChildNode(paw)
+                modelRoot.addChildNode(paw)
 
                 let pad = SCNNode(geometry: SCNSphere(radius: 0.065))
                 pad.geometry?.materials = [pink]
@@ -967,30 +980,30 @@ struct Mascot3DSceneView: NSViewRepresentable {
         }
 
         private func addRaisedPaw(material: SCNMaterial, pink: SCNMaterial, stripe: SCNMaterial) {
-            let arm = SCNNode(geometry: SCNCapsule(capRadius: 0.13, height: 0.74))
-            arm.geometry?.materials = [material]
-            arm.position = SCNVector3(-0.80, -0.24, 0.36)
-            arm.eulerAngles = SCNVector3(0.10, 0.0, -0.74)
-            root.addChildNode(arm)
+            raisedArm.geometry = SCNCapsule(capRadius: 0.13, height: 0.74)
+            raisedArm.geometry?.materials = [material]
+            raisedArm.position = SCNVector3(-0.80, -0.24, 0.36)
+            raisedArm.eulerAngles = SCNVector3(0.10, 0.0, -0.74)
+            modelRoot.addChildNode(raisedArm)
 
-            let paw = SCNNode(geometry: SCNSphere(radius: 0.25))
-            paw.geometry?.materials = [material]
-            paw.position = SCNVector3(-1.08, 0.12, 0.62)
-            paw.scale = SCNVector3(0.94, 1.08, 0.48)
-            root.addChildNode(paw)
+            raisedPaw.geometry = SCNSphere(radius: 0.25)
+            raisedPaw.geometry?.materials = [material]
+            raisedPaw.position = SCNVector3(-1.08, 0.12, 0.62)
+            raisedPaw.scale = SCNVector3(0.94, 1.08, 0.48)
+            modelRoot.addChildNode(raisedPaw)
 
             let centerPad = SCNNode(geometry: SCNSphere(radius: 0.080))
             centerPad.geometry?.materials = [pink]
             centerPad.position = SCNVector3(0.00, -0.03, 0.18)
             centerPad.scale = SCNVector3(1.20, 0.86, 0.28)
-            paw.addChildNode(centerPad)
+            raisedPaw.addChildNode(centerPad)
 
             for (x, y) in [(-0.09, 0.08), (0.00, 0.12), (0.09, 0.08)] {
                 let toe = SCNNode(geometry: SCNSphere(radius: 0.043))
                 toe.geometry?.materials = [pink]
                 toe.position = SCNVector3(Float(x), Float(y), 0.18)
                 toe.scale = SCNVector3(1.0, 0.80, 0.26)
-                paw.addChildNode(toe)
+                raisedPaw.addChildNode(toe)
             }
 
             for offset: Float in [-0.13, 0.03] {
@@ -998,12 +1011,31 @@ struct Mascot3DSceneView: NSViewRepresentable {
                 band.geometry?.materials = [stripe]
                 band.position = SCNVector3(-0.76 + offset, -0.34 + offset * 0.6, 0.52)
                 band.eulerAngles = SCNVector3(0.10, 0.0, -0.74)
-                root.addChildNode(band)
+                modelRoot.addChildNode(band)
             }
         }
 
         private func installIdleAnimations() {
-            root.runAction(
+            modelRoot.runAction(
+                .repeatForever(
+                    .sequence([
+                        .group([
+                            .moveBy(x: 0.10, y: 0.06, z: 0, duration: 0.42),
+                            .rotateBy(x: 0, y: 0, z: -0.055, duration: 0.42)
+                        ]),
+                        .group([
+                            .moveBy(x: -0.20, y: -0.02, z: 0, duration: 0.54),
+                            .rotateBy(x: 0, y: 0, z: 0.11, duration: 0.54)
+                        ]),
+                        .group([
+                            .moveBy(x: 0.10, y: -0.04, z: 0, duration: 0.42),
+                            .rotateBy(x: 0, y: 0, z: -0.055, duration: 0.42)
+                        ])
+                    ])
+                ),
+                forKey: "danceWeightShift"
+            )
+            modelRoot.runAction(
                 .repeatForever(
                     .sequence([
                         .moveBy(x: 0, y: 0.045, z: 0, duration: 1.35),
@@ -1021,6 +1053,16 @@ struct Mascot3DSceneView: NSViewRepresentable {
                 ),
                 forKey: "breathing"
             )
+            head.runAction(
+                .repeatForever(
+                    .sequence([
+                        .rotateBy(x: 0.045, y: 0.030, z: -0.035, duration: 0.54),
+                        .rotateBy(x: -0.090, y: -0.050, z: 0.070, duration: 0.62),
+                        .rotateBy(x: 0.045, y: 0.020, z: -0.035, duration: 0.48)
+                    ])
+                ),
+                forKey: "headDance"
+            )
             tail.runAction(
                 .repeatForever(
                     .sequence([
@@ -1030,6 +1072,28 @@ struct Mascot3DSceneView: NSViewRepresentable {
                 ),
                 forKey: "tail"
             )
+            raisedArm.runAction(
+                .repeatForever(
+                    .sequence([
+                        .rotateBy(x: 0.0, y: 0.0, z: -0.22, duration: 0.36),
+                        .rotateBy(x: 0.0, y: 0.0, z: 0.35, duration: 0.46),
+                        .rotateBy(x: 0.0, y: 0.0, z: -0.13, duration: 0.34)
+                    ])
+                ),
+                forKey: "pawWaveArm"
+            )
+            raisedPaw.runAction(
+                .repeatForever(
+                    .sequence([
+                        .moveBy(x: -0.04, y: 0.10, z: 0.02, duration: 0.36),
+                        .moveBy(x: 0.08, y: -0.18, z: -0.02, duration: 0.46),
+                        .moveBy(x: -0.04, y: 0.08, z: 0.0, duration: 0.34)
+                    ])
+                ),
+                forKey: "pawWave"
+            )
+            leftFoot.runAction(footTap(delay: 0.0), forKey: "leftFootTap")
+            rightFoot.runAction(footTap(delay: 0.42), forKey: "rightFootTap")
             leftEar.runAction(earTwitch(delay: 1.3), forKey: "leftEarTwitch")
             rightEar.runAction(earTwitch(delay: 2.0), forKey: "rightEarTwitch")
             [leftEye, rightEye, leftPupil, rightPupil].forEach { node in
@@ -1044,6 +1108,17 @@ struct Mascot3DSceneView: NSViewRepresentable {
                     .rotateBy(x: 0, y: 0, z: 0.10, duration: 0.08),
                     .rotateBy(x: 0, y: 0, z: -0.10, duration: 0.12),
                     .wait(duration: 2.4)
+                ])
+            )
+        }
+
+        private func footTap(delay: TimeInterval) -> SCNAction {
+            .repeatForever(
+                .sequence([
+                    .wait(duration: delay),
+                    .moveBy(x: 0, y: 0.055, z: 0.04, duration: 0.18),
+                    .moveBy(x: 0, y: -0.055, z: -0.04, duration: 0.18),
+                    .wait(duration: 0.82)
                 ])
             )
         }
