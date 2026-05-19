@@ -97,8 +97,16 @@ private extension AppDelegate {
 
     func upsertEmptyWindow() {
         let view = AnyView(
-            CatFace(tint: .gray, isSelected: false, displayNumber: 0)
-                .frame(width: 118, height: 122)
+            Plush3DCatIcon(
+                tint: .gray,
+                isSelected: false,
+                displayNumber: 0,
+                isAwake: true,
+                isBlinking: false,
+                isPointerNear: false,
+                pointerVector: .zero
+            )
+                .frame(width: 146, height: 158)
                 .contextMenu {
                     Button("새로고침") { self.store.refresh() }
                     Button("Agent Family 종료") { NSApplication.shared.terminate(nil) }
@@ -117,7 +125,7 @@ private extension AppDelegate {
     }
 
     func makeCatWindow(id: String, origin: CGPoint, rootView: AnyView) -> NSWindow {
-        let size = NSSize(width: 130, height: 140)
+        let size = NSSize(width: 158, height: 174)
         let window = FloatingOverlayWindow(
             contentRect: NSRect(origin: origin, size: size),
             styleMask: [.borderless],
@@ -142,9 +150,9 @@ private extension AppDelegate {
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 80, y: 80, width: 900, height: 620)
         let column = index % 5
         let row = index / 5
-        let x = screen.minX + 28 + CGFloat(column * 122)
-        let y = screen.maxY - 158 - CGFloat(row * 132)
-        return CGPoint(x: min(x, screen.maxX - 150), y: max(y, screen.minY + 20))
+        let x = screen.minX + 28 + CGFloat(column * 152)
+        let y = screen.maxY - 190 - CGFloat(row * 164)
+        return CGPoint(x: min(x, screen.maxX - 176), y: max(y, screen.minY + 20))
     }
 }
 
@@ -313,7 +321,15 @@ struct FloatingTerminalOverlay: View {
     }
 
     private var emptyState: some View {
-        CatFace(tint: .gray, isSelected: false, displayNumber: 0)
+        Plush3DCatIcon(
+            tint: .gray,
+            isSelected: false,
+            displayNumber: 0,
+            isAwake: true,
+            isBlinking: false,
+            isPointerNear: false,
+            pointerVector: .zero
+        )
             .help("감지된 터미널 없음 · 우클릭으로 새로고침")
     }
 }
@@ -327,6 +343,12 @@ struct FloatingTerminalCat: View {
     let onSolo: () -> Void
     let onNewTab: () -> Void
     let onClear: () -> Void
+    @State private var livePhase = false
+    @State private var blinkPhase = false
+    @State private var windowFrameProvider: (() -> CGRect)?
+    @State private var pointerVector = CGSize.zero
+    @State private var isPointerNear = false
+    private let pointerTimer = Timer.publish(every: 1.0 / 30.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 6) {
@@ -335,7 +357,15 @@ struct FloatingTerminalCat: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
 
-            CatFace(tint: terminal.tint, isSelected: isSelected, displayNumber: displayNumber)
+            Plush3DCatIcon(
+                tint: terminal.tint,
+                isSelected: isSelected,
+                displayNumber: displayNumber,
+                isAwake: livePhase,
+                isBlinking: blinkPhase,
+                isPointerNear: isPointerNear,
+                pointerVector: pointerVector
+            )
                 .offset(y: floatPhase ? -4 : 4)
                 .animation(
                     .easeInOut(duration: 1.7 + Double(displayNumber % 4) * 0.18)
@@ -345,7 +375,15 @@ struct FloatingTerminalCat: View {
                 .onTapGesture(count: 2, perform: onSolo)
                 .onTapGesture(perform: onActivate)
         }
-        .frame(width: 118, height: 122)
+        .frame(width: 146, height: 158)
+        .background(WindowFrameReader(frameProvider: $windowFrameProvider))
+        .onAppear {
+            livePhase = true
+            scheduleBlink()
+        }
+        .onReceive(pointerTimer) { _ in
+            updatePointerReaction()
+        }
         .contextMenu {
             Button("앞으로 가져오기", action: onActivate)
             Button("이 터미널만 보기", action: onSolo)
@@ -356,6 +394,55 @@ struct FloatingTerminalCat: View {
             Text(terminal.shortTitle)
         }
         .help("\(terminal.appName): \(terminal.title.isEmpty ? "Untitled" : terminal.title)")
+    }
+
+    private func scheduleBlink() {
+        let delay = 1.6 + Double(displayNumber % 5) * 0.43
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            blinkPhase = true
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            blinkPhase = false
+            scheduleBlink()
+        }
+    }
+
+    private func updatePointerReaction() {
+        let windowFrame = windowFrameProvider?() ?? .zero
+        guard !windowFrame.isEmpty else { return }
+
+        let mouse = NSEvent.mouseLocation
+        let center = CGPoint(x: windowFrame.midX, y: windowFrame.midY)
+        let dx = mouse.x - center.x
+        let dy = mouse.y - center.y
+        let distance = max(1, hypot(dx, dy))
+        let nearDistance: CGFloat = 220
+        let strength = max(0, min(1, 1 - distance / nearDistance))
+
+        isPointerNear = strength > 0.12
+        pointerVector = CGSize(width: dx / distance * strength, height: dy / distance * strength)
+    }
+}
+
+struct WindowFrameReader: NSViewRepresentable {
+    @Binding var frameProvider: (() -> CGRect)?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            frameProvider = { [weak view] in
+                view?.window?.frame ?? .zero
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            frameProvider = { [weak nsView] in
+                nsView?.window?.frame ?? .zero
+            }
+        }
     }
 }
 
@@ -397,56 +484,59 @@ struct Triangle: Shape {
     }
 }
 
-struct CatFace: View {
+struct Plush3DCatIcon: View {
     let tint: Color
     let isSelected: Bool
     let displayNumber: Int
+    let isAwake: Bool
+    let isBlinking: Bool
+    let isPointerNear: Bool
+    let pointerVector: CGSize
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             ZStack {
-                CatEar()
-                    .fill(tint.opacity(0.90))
-                    .frame(width: 28, height: 28)
-                    .rotationEffect(.degrees(-22))
-                    .offset(x: -22, y: -26)
-
-                CatEar()
-                    .fill(tint.opacity(0.90))
-                    .frame(width: 28, height: 28)
-                    .rotationEffect(.degrees(22))
-                    .offset(x: 22, y: -26)
-
-                Circle()
-                    .fill(.black.opacity(0.60))
-                    .frame(width: 72, height: 64)
-                    .overlay(Circle().stroke(tint.opacity(0.95), lineWidth: isSelected ? 3 : 2))
-
-                HStack(spacing: 15) {
-                    Circle().fill(.white.opacity(0.95)).frame(width: 8, height: 10)
-                    Circle().fill(.white.opacity(0.95)).frame(width: 8, height: 10)
+                if let catImage = isPointerNear ? CatIconAsset.focusImage : CatIconAsset.idleImage {
+                    Image(nsImage: catImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: 144, height: 144)
+                        .offset(
+                            x: pointerVector.width * 8,
+                            y: -pointerVector.height * 7
+                        )
+                        .scaleEffect(
+                            x: isAwake ? 1.018 : 0.992,
+                            y: isAwake ? 0.992 : 1.018,
+                            anchor: .bottom
+                        )
+                        .rotationEffect(
+                            .degrees(Double(pointerVector.width * 8) + (isAwake ? 0.8 : -0.8)),
+                            anchor: .bottom
+                        )
+                        .animation(
+                            .easeInOut(duration: 2.6 + Double(displayNumber % 4) * 0.13)
+                                .repeatForever(autoreverses: true),
+                            value: isAwake
+                        )
+                        .animation(.spring(response: 0.24, dampingFraction: 0.74), value: isPointerNear)
+                        .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.82), value: pointerVector)
+                } else {
+                    vectorFallbackCat
                 }
-                .offset(y: -7)
-
-                Triangle()
-                    .fill(tint)
-                    .frame(width: 9, height: 7)
-                    .rotationEffect(.degrees(180))
-                    .offset(y: 6)
-
-                HStack(spacing: 4) {
-                    Capsule().fill(.white.opacity(0.72)).frame(width: 13, height: 2)
-                    Capsule().fill(.white.opacity(0.72)).frame(width: 13, height: 2)
-                }
-                .offset(y: 16)
 
                 Image(systemName: "terminal.fill")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(tint)
-                    .offset(y: 28)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.94))
+                    .frame(width: 20, height: 20)
+                    .background(tint.opacity(0.86), in: Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.45), lineWidth: 1))
+                    .offset(x: 44, y: 55)
             }
-            .frame(width: 82, height: 82)
-            .shadow(color: tint.opacity(isSelected ? 0.45 : 0.22), radius: isSelected ? 16 : 8, x: 0, y: 8)
+            .frame(width: 146, height: 146)
+            .shadow(color: tint.opacity(isSelected ? 0.28 : 0.14), radius: isSelected ? 18 : 10, x: 0, y: 8)
+            .shadow(color: .black.opacity(0.18), radius: 10, x: 0, y: 8)
 
             if displayNumber > 0 {
                 Text("\(displayNumber)")
@@ -455,9 +545,348 @@ struct CatFace: View {
                     .frame(width: 18, height: 18)
                     .background(tint, in: Circle())
                     .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 1))
-                    .offset(x: -3, y: -4)
+                    .offset(x: -2, y: -6)
             }
         }
+    }
+
+    private var vectorFallbackCat: some View {
+        ZStack {
+            cloud
+                .offset(y: 25)
+                .scaleEffect(x: isAwake ? 1.02 : 0.98, y: isAwake ? 0.98 : 1.02)
+                .animation(
+                    .easeInOut(duration: 2.1 + Double(displayNumber % 4) * 0.13)
+                        .repeatForever(autoreverses: true),
+                    value: isAwake
+                )
+
+            tail
+                .offset(x: -34, y: 18)
+
+            catBody
+                .offset(y: 7)
+
+            head
+                .offset(y: isAwake ? -19 : -15)
+                .rotationEffect(.degrees(isAwake ? 1.8 : -1.8))
+                .scaleEffect(isBlinking ? 0.985 : 1)
+                .animation(
+                    .easeInOut(duration: 2.3 + Double(displayNumber % 3) * 0.16)
+                        .repeatForever(autoreverses: true),
+                    value: isAwake
+                )
+
+            frontPaw(x: -18)
+            frontPaw(x: 19)
+        }
+    }
+
+    private var cloud: some View {
+        ZStack {
+            CloudPuff(width: 88, height: 38, x: 0, y: 6)
+            CloudPuff(width: 45, height: 43, x: -38, y: 0)
+            CloudPuff(width: 46, height: 46, x: -15, y: -10)
+            CloudPuff(width: 52, height: 50, x: 16, y: -8)
+            CloudPuff(width: 45, height: 42, x: 40, y: 2)
+            CloudPuff(width: 32, height: 32, x: -3, y: 17)
+                .opacity(0.95)
+        }
+        .overlay(
+            Ellipse()
+                .fill(.pink.opacity(0.16))
+                .frame(width: 100, height: 23)
+                .blur(radius: 7)
+                .offset(y: 18)
+        )
+    }
+
+    private var catBody: some View {
+        Ellipse()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        Color(red: 1.0, green: 0.86, blue: 0.82),
+                        Color(red: 0.94, green: 0.72, blue: 0.70),
+                        Color(red: 0.70, green: 0.45, blue: 0.47).opacity(0.88)
+                    ],
+                    center: .topLeading,
+                    startRadius: 6,
+                    endRadius: 58
+                )
+            )
+            .frame(width: 64, height: 46)
+            .overlay(Ellipse().stroke(.white.opacity(0.38), lineWidth: 1))
+            .shadow(color: .white.opacity(0.20), radius: 5, x: -4, y: -5)
+            .shadow(color: .pink.opacity(0.20), radius: 7, x: 2, y: 5)
+    }
+
+    private var head: some View {
+        ZStack {
+            CatEar()
+                .fill(earGradient)
+                .frame(width: 27, height: 29)
+                .overlay(CatEar().fill(.pink.opacity(0.54)).padding(7))
+                .rotationEffect(.degrees(-26))
+                .offset(x: -23, y: -20)
+
+            CatEar()
+                .fill(earGradient)
+                .frame(width: 27, height: 29)
+                .overlay(CatEar().fill(.pink.opacity(0.54)).padding(7))
+                .rotationEffect(.degrees(26))
+                .offset(x: 23, y: -20)
+
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color(red: 1.0, green: 0.91, blue: 0.88),
+                            Color(red: 0.95, green: 0.73, blue: 0.70),
+                            Color(red: 0.70, green: 0.45, blue: 0.47).opacity(0.82)
+                        ],
+                        center: .topLeading,
+                        startRadius: 7,
+                        endRadius: 58
+                    )
+                )
+                .frame(width: 72, height: 66)
+                .overlay(Circle().stroke(.white.opacity(0.32), lineWidth: 1))
+
+            ForEach([-12, 0, 12], id: \.self) { x in
+                ForeheadStripe()
+                    .fill(Color(red: 0.56, green: 0.37, blue: 0.33).opacity(0.42))
+                    .frame(width: 7, height: 19)
+                    .offset(x: CGFloat(x), y: -25)
+            }
+
+            ClosedEye()
+                .stroke(Color(red: 0.28, green: 0.15, blue: 0.15).opacity(0.86), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .frame(width: 18, height: 8)
+                .offset(x: -15, y: -5)
+
+            ClosedEye()
+                .stroke(Color(red: 0.28, green: 0.15, blue: 0.15).opacity(0.86), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .frame(width: 18, height: 8)
+                .scaleEffect(x: -1, y: 1)
+                .offset(x: 15, y: -5)
+
+            HStack(spacing: 42) {
+                Whiskers()
+                    .stroke(Color(red: 0.42, green: 0.24, blue: 0.23).opacity(0.36), style: StrokeStyle(lineWidth: 1, lineCap: .round))
+                    .frame(width: 22, height: 15)
+                Whiskers()
+                    .stroke(Color(red: 0.42, green: 0.24, blue: 0.23).opacity(0.36), style: StrokeStyle(lineWidth: 1, lineCap: .round))
+                    .frame(width: 22, height: 15)
+                    .scaleEffect(x: -1, y: 1)
+            }
+            .offset(y: 11)
+
+            Triangle()
+                .fill(Color(red: 0.88, green: 0.37, blue: 0.34))
+                .frame(width: 9, height: 7)
+                .rotationEffect(.degrees(180))
+                .offset(y: 8)
+
+            CatMouth(isOpen: false)
+                .stroke(Color(red: 0.35, green: 0.18, blue: 0.18).opacity(0.72), style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
+                .frame(width: 25, height: 14)
+                .offset(y: 16)
+        }
+    }
+
+    private func frontPaw(x: CGFloat) -> some View {
+        Circle()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        Color(red: 1.0, green: 0.86, blue: 0.84),
+                        Color(red: 0.86, green: 0.58, blue: 0.58).opacity(0.95)
+                    ],
+                    center: .topLeading,
+                    startRadius: 2,
+                    endRadius: 20
+                )
+            )
+            .frame(width: 20, height: 20)
+            .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1))
+            .offset(x: x, y: 27)
+    }
+
+    private var tail: some View {
+        Circle()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        Color(red: 1.0, green: 0.80, blue: 0.77),
+                        Color(red: 0.78, green: 0.47, blue: 0.48)
+                    ],
+                    center: .topLeading,
+                    startRadius: 2,
+                    endRadius: 18
+                )
+            )
+            .frame(width: 24, height: 24)
+            .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1))
+    }
+
+    private var earGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color(red: 1.0, green: 0.86, blue: 0.82),
+                Color(red: 0.84, green: 0.58, blue: 0.56)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+struct CloudPuff: View {
+    let width: CGFloat
+    let height: CGFloat
+    let x: CGFloat
+    let y: CGFloat
+
+    var body: some View {
+        Ellipse()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        .white.opacity(0.98),
+                        Color(red: 1.0, green: 0.79, blue: 0.80).opacity(0.88),
+                        Color(red: 0.78, green: 0.52, blue: 0.58).opacity(0.72)
+                    ],
+                    center: .topLeading,
+                    startRadius: 3,
+                    endRadius: 48
+                )
+            )
+            .frame(width: width, height: height)
+            .shadow(color: .white.opacity(0.26), radius: 4, x: -3, y: -4)
+            .shadow(color: .pink.opacity(0.24), radius: 7, x: 2, y: 5)
+            .offset(x: x, y: y)
+    }
+}
+
+enum CatIconAsset {
+    static let idleFileName = "cat-idle-groom.png"
+    static let focusFileName = "cat-alert-focus.png"
+
+    static var idleImage: NSImage? {
+        image(named: idleFileName) ?? image(named: "plush-cat.png")
+    }
+
+    static var focusImage: NSImage? {
+        image(named: focusFileName) ?? idleImage
+    }
+
+    private static func image(named fileName: String) -> NSImage? {
+        for url in candidateURLs(for: fileName) {
+            if let image = NSImage(contentsOf: url) {
+                return image
+            }
+        }
+        return nil
+    }
+
+    private static func candidateURLs(for fileName: String) -> [URL] {
+        var urls: [URL] = []
+
+        if let bundleURL = Bundle.main.resourceURL {
+            urls.append(bundleURL.appendingPathComponent(fileName))
+        }
+
+        let currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        urls.append(currentDirectoryURL.appendingPathComponent("AppResources/\(fileName)"))
+        urls.append(currentDirectoryURL.appendingPathComponent("Resources/\(fileName)"))
+
+        if let executableURL = Bundle.main.executableURL {
+            urls.append(
+                executableURL
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("Resources/\(fileName)")
+            )
+        }
+
+        return urls
+    }
+}
+
+struct ClosedEye: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.midY),
+            control: CGPoint(x: rect.midX, y: rect.maxY + 3)
+        )
+        return path
+    }
+}
+
+struct ForeheadStripe: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addCurve(
+            to: CGPoint(x: rect.midX, y: rect.maxY),
+            control1: CGPoint(x: rect.minX - 1, y: rect.height * 0.30),
+            control2: CGPoint(x: rect.maxX + 1, y: rect.height * 0.68)
+        )
+        return path
+    }
+}
+
+struct CatMouth: Shape {
+    let isOpen: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let center = CGPoint(x: rect.midX, y: rect.minY + 2)
+        path.move(to: center)
+        path.addQuadCurve(
+            to: CGPoint(x: rect.midX - rect.width * 0.30, y: rect.midY),
+            control: CGPoint(x: rect.midX - rect.width * 0.18, y: rect.midY + 4)
+        )
+        path.move(to: center)
+        path.addQuadCurve(
+            to: CGPoint(x: rect.midX + rect.width * 0.30, y: rect.midY),
+            control: CGPoint(x: rect.midX + rect.width * 0.18, y: rect.midY + 4)
+        )
+
+        if isOpen {
+            path.addEllipse(in: CGRect(x: rect.midX - 3, y: rect.midY + 2, width: 6, height: 7))
+        }
+
+        return path
+    }
+}
+
+struct CatTail: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + 5, y: rect.maxY - 6))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - 8, y: rect.minY + 8),
+            control1: CGPoint(x: rect.maxX + 8, y: rect.maxY - 8),
+            control2: CGPoint(x: rect.maxX + 2, y: rect.minY + 30)
+        )
+        return path
+    }
+}
+
+struct Whiskers: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.maxX, y: rect.midY - 3))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + 2))
+        path.move(to: CGPoint(x: rect.maxX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.move(to: CGPoint(x: rect.maxX, y: rect.midY + 3))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - 2))
+        return path
     }
 }
 
